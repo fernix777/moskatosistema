@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Punto de Venta - Sistema de Gestión de Bebidas</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link href="/css/styles.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">Punto de Venta</a>
+            <div class="d-flex align-items-center">
+                <button class="btn btn-outline-light btn-sm me-2" id="customerBtn">
+                    <i class="fas fa-user-plus"></i> Cliente
+                </button>
+                <span class="navbar-text me-3">
+                    <i class="fas fa-user"></i> Cajero
+                </span>
+                <button class="btn btn-outline-light btn-sm me-2" id="drawerButton">
+                    <i class="fas fa-cash-register"></i> Caja
+                </button>
+                <a href="index.html" class="btn btn-outline-light btn-sm">
+                    <i class="fas fa-sign-out-alt"></i> Salir
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="row">
+            <!-- Panel de Búsqueda y Lista de Productos -->
+            <div class="col-md-8">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <div class="input-group mb-3">
+                            <input type="text" class="form-control" id="barcodeInput" placeholder="Escanear código de barras..." autofocus>
+                            <button class="btn btn-primary">
+                                <i class="fas fa-barcode"></i>
+                            </button>
+                        </div>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="searchProduct" placeholder="Buscar producto por nombre...">
+                            <button class="btn btn-primary">
+                                <i class="fas fa-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row" id="productGrid">
+                            <!-- Los productos se cargarán dinámicamente aquí -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel del Carrito -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-shopping-cart me-2"></i>Carrito de Compra
+                        </h5>
+                        <button class="btn btn-sm btn-outline-light" id="returnSale">
+                            <i class="fas fa-undo-alt"></i> Devolución
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive mb-3">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Producto</th>
+                                        <th>Cant.</th>
+                                        <th>Precio</th>
+                                        <th>Total</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cartItems">
+                                    <!-- Los items del carrito se cargarán aquí -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="border-top pt-3">
+                            <div class="d-flex justify-content-between mb-2">
+                                <h6>Subtotal:</h6>
+                                <span id="subtotal">$0.00</span>
+                            </div>
+                            <div style="display:none">
+                                <span id="discounts">$0.00</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-3">
+                                <h5>Total:</h5>
+                                <h5 id="total">$0.00</h5>
+                            </div>
+                            <div class="mb-3">
+                                <select class="form-select mb-2" id="paymentMethod">
+                                    <option value="cash">Efectivo</option>
+                                    <option value="card">Tarjeta</option>
+                                    <option value="transfer">Transferencia</option>
+                                </select>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="requireInvoice">
+                                    <label class="form-check-label" for="requireInvoice">
+                                        Generar Factura
+                                    </label>
+                                </div>
+                                <div id="cashPayment" class="mb-2">
+                                    <div class="input-group">
+                                        <span class="input-group-text">$</span>
+                                        <input type="number" class="form-control" id="cashAmount" placeholder="Monto recibido">
+                                        <button class="btn btn-outline-secondary" type="button" id="calculateChange">Calcular</button>
+                                    </div>
+                                    <div class="text-end mt-2">
+                                        <span class="me-2">Cambio:</span>
+                                        <span id="changeAmount" class="fw-bold">$0.00</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button class="btn btn-success w-100 mb-2" id="processSale">
+                                <i class="fas fa-cash-register me-2"></i>Procesar Venta
+                            </button>
+                            <button class="btn btn-outline-primary w-100 mb-2" id="holdSale">
+                                <i class="fas fa-pause me-2"></i>Poner en Espera
+                            </button>
+                            <button class="btn btn-outline-danger w-100" id="clearCart">
+                                <i class="fas fa-trash me-2"></i>Limpiar Carrito
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Devolución -->
+    <div class="modal fade" id="returnModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Devolución de Venta</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Número de Ticket</label>
+                        <input type="text" class="form-control" id="ticketNumber">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Motivo de Devolución</label>
+                        <textarea class="form-control" id="returnReason" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" id="processReturn">Procesar Devolución</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Caja -->
+    <div class="modal fade" id="drawerModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Operaciones de Caja</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary" id="openDrawerBtn">
+                            <i class="fas fa-box-open me-2"></i>Abrir Caja
+                        </button>
+                        <button class="btn btn-info" id="cashCountBtn">
+                            <i class="fas fa-coins me-2"></i>Conteo de Efectivo
+                        </button>
+                        <button class="btn btn-warning" id="partialCloseBtn">
+                            <i class="fas fa-clock me-2"></i>Cierre Parcial
+                        </button>
+                        <button class="btn btn-danger" id="closeDrawerBtn">
+                            <i class="fas fa-lock me-2"></i>Cerrar Caja
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Descuentos -->
+    <div class="modal fade" id="discountsModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Descuentos y Promociones</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <h6>Descuentos Disponibles</h6>
+                        <div id="availableDiscounts" class="list-group">
+                            <!-- Los descuentos se cargarán dinámicamente aquí -->
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <h6>Promociones Activas</h6>
+                        <div id="activePromotions" class="list-group">
+                            <!-- Las promociones se cargarán dinámicamente aquí -->
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                    <button type="button" class="btn btn-primary" id="applyDiscount">Aplicar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Cliente -->
+    <div class="modal fade" id="customerModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Gestión de Cliente</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Buscar Cliente</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="customerSearch" placeholder="Teléfono o Email">
+                            <button class="btn btn-primary" id="searchCustomer">
+                                <i class="fas fa-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="customerInfo" class="d-none">
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h6 class="card-title" id="customerName"></h6>
+                                <p class="card-text mb-1">
+                                    <small class="text-muted">Nivel: </small>
+                                    <span id="customerLevel" class="badge bg-primary"></span>
+                                </p>
+                                <p class="card-text mb-1">
+                                    <small class="text-muted">Puntos: </small>
+                                    <span id="customerPoints"></span>
+                                </p>
+                                <p class="card-text">
+                                    <small class="text-muted">Descuento del nivel: </small>
+                                    <span id="customerDiscount"></span>
+                                </p>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <h6>Recompensas Disponibles</h6>
+                            <div id="availableRewards" class="list-group">
+                                <!-- Las recompensas se cargarán dinámicamente aquí -->
+                            </div>
+                        </div>
+                    </div>
+                    <div id="newCustomerForm" class="d-none">
+                        <h6>Registrar Nuevo Cliente</h6>
+                        <div class="mb-3">
+                            <label class="form-label">Nombre</label>
+                            <input type="text" class="form-control" id="newCustomerName">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Teléfono</label>
+                            <input type="tel" class="form-control" id="newCustomerPhone">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" id="newCustomerEmail">
+                        </div>
+                        <button class="btn btn-primary" id="registerCustomer">Registrar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Facturación -->
+    <div class="modal fade" id="invoiceModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Datos de Facturación</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="invoiceForm">
+                        <div class="mb-3">
+                            <label class="form-label">RFC</label>
+                            <input type="text" class="form-control" id="rfc" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Razón Social</label>
+                            <input type="text" class="form-control" id="razonSocial" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Dirección Fiscal</label>
+                            <textarea class="form-control" id="direccionFiscal" required></textarea>
+                        </div>
+                    </form>
+                    <div class="mt-3">
+                        <div class="btn-group w-100">
+                            <button type="button" class="btn btn-warning" onclick="editarFactura()">
+                                <i class="fas fa-edit"></i> Editar
+                            </button>
+                            <button type="button" class="btn btn-info" onclick="imprimirFactura()">
+                                <i class="fas fa-print"></i> Imprimir
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" onclick="continuarVenta()">Continuar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/auth.js"></script>
+    <script src="/js/loyalty.js"></script>
+    <script src="/js/pos.js"></script>
+    <script>
+        // Verificar sesión al cargar la página
+        verificarSesion();
+    </script>
+</body>
+</html>
