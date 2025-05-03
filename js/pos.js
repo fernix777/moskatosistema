@@ -925,16 +925,6 @@ function procesarVenta(datosFactura = null) {
         return;
     }
 
-    // Crear objeto de venta
-    const venta = {
-        id: Date.now(),
-        items: [...carrito],
-        total: total,
-        metodoPago: metodoPago,
-        fecha: new Date().toISOString(),
-        datosFactura: datosFactura
-    };
-
     // Enviar venta al servidor
     fetch(`${API_BASE_URL}/api/ventas`, {
         method: 'POST',
@@ -954,19 +944,17 @@ function procesarVenta(datosFactura = null) {
         })
     })
     .then(async response => {
+        const data = await response.json();
         if (!response.ok) {
-            let errorMsg = 'Error al procesar la venta';
-            try {
-                const data = await response.json();
-                if (data.error === 'stock_insuficiente') {
-                    errorMsg = 'No hay suficiente stock para uno o más productos.';
-                } else if (data.error === 'datos_invalidos') {
-                    errorMsg = 'Datos de venta inválidos.';
-                }
-            } catch (e) {}
-            throw new Error(errorMsg);
+            if (data.error === 'stock_insuficiente') {
+                throw new Error(data.mensaje || 'No hay suficiente stock para uno o más productos.');
+            } else if (data.error === 'datos_invalidos') {
+                throw new Error('Los datos de la venta son inválidos.');
+            } else {
+                throw new Error(data.mensaje || 'Error al procesar la venta');
+            }
         }
-        return response.json();
+        return data;
     })
     .then(data => {
         // Actualizar saldo de caja
@@ -977,9 +965,22 @@ function procesarVenta(datosFactura = null) {
 
         // Imprimir ticket o factura
         if (datosFactura) {
-            imprimirFactura(venta);
+            imprimirFactura({
+                id: data.id,
+                items: [...carrito],
+                total: total,
+                metodoPago: metodoPago,
+                fecha: new Date().toISOString(),
+                datosFactura: datosFactura
+            });
         } else {
-            imprimirTicket(venta);
+            imprimirTicket({
+                id: data.id,
+                items: [...carrito],
+                total: total,
+                metodoPago: metodoPago,
+                fecha: new Date().toISOString()
+            });
         }
 
         // Limpiar carrito
@@ -989,18 +990,17 @@ function procesarVenta(datosFactura = null) {
         document.getElementById('changeAmount').textContent = '$0.00';
         document.getElementById('requireInvoice').checked = false;
 
-        // Recargar productos para actualizar stock en la grilla
-        fetch(`${API_BASE_URL}/api/productos`, {
+        // Recargar productos para actualizar stock
+        return fetch(`${API_BASE_URL}/api/productos`, {
             headers: {
                 'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}`
             }
-        })
-        .then(response => response.json())
-        .then(data => {
-            productos = data;
-            cargarProductos(productos);
         });
-
+    })
+    .then(response => response.json())
+    .then(data => {
+        productos = data;
+        cargarProductos(productos);
         alert('Venta procesada con éxito');
     })
     .catch(error => {

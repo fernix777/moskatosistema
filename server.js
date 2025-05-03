@@ -217,78 +217,106 @@ app.get('/api/ventas', autenticarToken, (req, res) => {
 });
 
 // Ruta para crear venta
-app.post('/api/ventas', autenticarToken, (req, res) => {
+app.post('/api/ventas', autenticarToken, async (req, res) => {
     const { productos, total, metodo_pago } = req.body;
 
     if (!Array.isArray(productos) || productos.length === 0 || !total) {
         return res.status(400).json({ error: 'datos_invalidos' });
     }
 
-    // Iniciar transacción
-    db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
+    // Verificar stock disponible
+    try {
+        for (const producto of productos) {
+            const [stockActual] = await new Promise((resolve, reject) => {
+                db.get(
+                    'SELECT stock FROM productos WHERE id = ?',
+                    [producto.producto_id],
+                    (err, row) => {
+                        if (err) reject(err);
+                        else resolve([row?.stock || 0]);
+                    }
+                );
+            });
 
-        db.run(
-            'INSERT INTO ventas (total, metodo_pago, fecha) VALUES (?, ?, datetime("now"))',
-            [total, metodo_pago],
-            function(err) {
-                if (err) {
-                    console.error('Error al crear venta:', err);
-                    db.run('ROLLBACK');
-                    return res.status(500).json({ error: 'Error al crear la venta' });
+            if (stockActual < producto.cantidad) {
+                return res.status(400).json({ 
+                    error: 'stock_insuficiente',
+                    mensaje: `Stock insuficiente para el producto ID ${producto.producto_id}`
+                });
+            }
+        }
+
+        // Iniciar transacción
+        await new Promise((resolve, reject) => {
+            db.run('BEGIN TRANSACTION', (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+
+        // Insertar venta
+        const ventaId = await new Promise((resolve, reject) => {
+            db.run(
+                'INSERT INTO ventas (total, metodo_pago, fecha) VALUES (?, ?, datetime("now"))',
+                [total, metodo_pago],
+                function(err) {
+                    if (err) reject(err);
+                    else resolve(this.lastID);
                 }
+            );
+        });
 
-                const ventaId = this.lastID;
-                let error = false;
-
-                // Insertar detalles de la venta
-                productos.forEach(producto => {
-                    if (error) return;
-
+        // Insertar detalles y actualizar stock
+        for (const producto of productos) {
+            await Promise.all([
+                new Promise((resolve, reject) => {
                     db.run(
                         'INSERT INTO detalles_venta (venta_id, producto_id, cantidad, precio_unitario) VALUES (?, ?, ?, ?)',
                         [ventaId, producto.producto_id, producto.cantidad, producto.precio_unitario],
                         (err) => {
-                            if (err) {
-                                console.error('Error al insertar detalle:', err);
-                                error = true;
-                            }
+                            if (err) reject(err);
+                            else resolve();
                         }
                     );
-
-                    // Actualizar stock
+                }),
+                new Promise((resolve, reject) => {
                     db.run(
                         'UPDATE productos SET stock = stock - ? WHERE id = ?',
                         [producto.cantidad, producto.producto_id],
                         (err) => {
-                            if (err) {
-                                console.error('Error al actualizar stock:', err);
-                                error = true;
-                            }
+                            if (err) reject(err);
+                            else resolve();
                         }
                     );
-                });
+                })
+            ]);
+        }
 
-                if (error) {
-                    db.run('ROLLBACK');
-                    return res.status(500).json({ error: 'Error al procesar la venta' });
-                }
+        // Confirmar transacción
+        await new Promise((resolve, reject) => {
+            db.run('COMMIT', (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
 
-                db.run('COMMIT', (err) => {
-                    if (err) {
-                        console.error('Error al confirmar transacción:', err);
-                        db.run('ROLLBACK');
-                        return res.status(500).json({ error: 'Error al confirmar la venta' });
-                    }
+        res.json({ 
+            id: ventaId,
+            mensaje: 'Venta registrada exitosamente'
+        });
 
-                    res.json({ 
-                        id: ventaId,
-                        mensaje: 'Venta registrada exitosamente'
-                    });
-                });
-            }
-        );
-    });
+    } catch (error) {
+        // Rollback en caso de error
+        await new Promise((resolve) => {
+            db.run('ROLLBACK', () => resolve());
+        });
+        
+        console.error('Error en la transacción:', error);
+        return res.status(500).json({ 
+            error: 'Error al procesar la venta',
+            mensaje: error.message
+        });
+    }
 });
 
 // Iniciar el servidor
