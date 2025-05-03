@@ -148,6 +148,25 @@ app.get('/api/productos', autenticarToken, (req, res) => {
     });
 });
 
+// Obtener producto por ID
+app.get('/api/productos/:id', autenticarToken, (req, res) => {
+    const id = req.params.id;
+    db.get(`
+        SELECT p.*, c.nombre as categoria_nombre 
+        FROM productos p 
+        LEFT JOIN categorias c ON p.categoria_id = c.id
+        WHERE p.id = ?
+    `, [id], (err, producto) => {
+        if (err) {
+            return res.status(500).json({ error: 'Error al obtener el producto' });
+        }
+        if (!producto) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+        res.json(producto);
+    });
+});
+
 // Rutas de categorías
 app.get('/api/categorias', autenticarToken, (req, res) => {
     db.all('SELECT * FROM categorias', (err, categorias) => {
