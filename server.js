@@ -14,7 +14,12 @@ const __dirname = dirname(__filename);
 
 // Asegurarnos de que los directorios necesarios existan
 const facturasDir = join(__dirname, 'facturas');
-await fs.ensureDir(facturasDir);
+try {
+    await fs.ensureDir(facturasDir);
+    console.log('Directorio de facturas creado o verificado:', facturasDir);
+} catch (error) {
+    console.error('Error al crear directorio de facturas:', error);
+}
 
 const app = express();
 const port = process.env.PORT || 5502;
@@ -824,10 +829,23 @@ app.get('/api/clientes', autenticarToken, (req, res) => {
 app.get('/api/clientes/buscar/:telefono', autenticarToken, async (req, res) => {
     const telefono = req.params.telefono;
     try {
+        // Validar formato del teléfono
+        if (!telefono.match(/^\d+$/)) {
+            return res.status(400).json({ 
+                error: 'formato_invalido',
+                mensaje: 'El teléfono debe contener solo números'
+            });
+        }
+
+        // Buscar cliente
         const cliente = await new Promise((resolve, reject) => {
             db.get('SELECT * FROM clientes WHERE telefono = ?', [telefono], (err, row) => {
-                if (err) reject(err);
-                else resolve(row);
+                if (err) {
+                    console.error('Error en consulta:', err);
+                    reject(err);
+                } else {
+                    resolve(row);
+                }
             });
         });
 
@@ -841,7 +859,10 @@ app.get('/api/clientes/buscar/:telefono', autenticarToken, async (req, res) => {
         res.json(cliente);
     } catch (error) {
         console.error('Error al buscar cliente:', error);
-        res.status(500).json({ error: 'Error al buscar cliente' });
+        res.status(500).json({ 
+            error: 'error_servidor',
+            mensaje: 'Error interno del servidor al buscar cliente'
+        });
     }
 });
 
@@ -911,8 +932,12 @@ app.post('/api/clientes', autenticarToken, async (req, res) => {
 app.post('/api/facturas/:ventaId', autenticarToken, async (req, res) => {
     const ventaId = req.params.ventaId;
     const clienteId = req.body.clienteId;
+    let doc = null;
 
     try {
+        // Verificar y crear directorio de facturas si no existe
+        await fs.ensureDir(facturasDir);
+
         // Obtener datos de la venta
         const venta = await new Promise((resolve, reject) => {
             db.get(`
@@ -936,7 +961,10 @@ app.post('/api/facturas/:ventaId', autenticarToken, async (req, res) => {
         });
 
         if (!venta) {
-            return res.status(404).json({ error: 'Venta no encontrada' });
+            return res.status(404).json({ 
+                error: 'venta_no_encontrada',
+                mensaje: 'La venta especificada no existe'
+            });
         }
 
         // Obtener datos del cliente
@@ -948,111 +976,138 @@ app.post('/api/facturas/:ventaId', autenticarToken, async (req, res) => {
         });
 
         if (!cliente) {
-            return res.status(404).json({ error: 'Cliente no encontrado' });
+            return res.status(404).json({ 
+                error: 'cliente_no_encontrado',
+                mensaje: 'El cliente especificado no existe'
+            });
         }
 
         // Crear el PDF
-        const doc = new PDFDocument({
+        doc = new PDFDocument({
             size: 'A4',
-            margin: 50
+            margin: 50,
+            bufferPages: true
         });
 
         // Generar nombre único para el archivo
         const fileName = `factura-${ventaId}-${Date.now()}.pdf`;
         const filePath = join(__dirname, 'facturas', fileName);
 
-        // Pipe el PDF a un archivo
-        doc.pipe(fs.createWriteStream(filePath));
+        // Pipe el PDF a un archivo y manejar errores
+        const writeStream = fs.createWriteStream(filePath);
+        doc.pipe(writeStream);
 
-        // Agregar contenido al PDF
-        doc.fontSize(20).text('FACTURA', { align: 'center' });
-        doc.moveDown();
+        // Agregar contenido al PDF con manejo de errores
+        try {
+            // Contenido del PDF
+            doc.fontSize(20).text('FACTURA', { align: 'center' });
+            doc.moveDown();
 
-        // Información del negocio
-        doc.fontSize(12)
-           .text('MOSKATO BEBIDAS', { align: 'left' })
-           .text('RFC: XXX000000XXX')
-           .text('Dirección: Tu dirección aquí')
-           .text('Tel: Tu teléfono aquí')
-           .moveDown();
+            // Información del negocio
+            doc.fontSize(12)
+               .text('MOSKATO BEBIDAS', { align: 'left' })
+               .text('RFC: XXX000000XXX')
+               .text('Dirección: Tu dirección aquí')
+               .text('Tel: Tu teléfono aquí')
+               .moveDown();
 
-        // Información del cliente
-        doc.text('CLIENTE')
-           .text(`Nombre: ${cliente.nombre} ${cliente.apellido}`)
-           .text(`Teléfono: ${cliente.telefono}`)
-           .text(`Email: ${cliente.email || 'No especificado'}`)
-           .text(`Dirección: ${cliente.direccion || 'No especificada'}`)
-           .moveDown();
+            // Información del cliente
+            doc.text('CLIENTE')
+               .text(`Nombre: ${cliente.nombre} ${cliente.apellido}`)
+               .text(`Teléfono: ${cliente.telefono}`)
+               .text(`Email: ${cliente.email || 'No especificado'}`)
+               .text(`Dirección: ${cliente.direccion || 'No especificada'}`)
+               .moveDown();
 
-        // Información de la venta
-        doc.text(`Fecha: ${new Date(venta.fecha).toLocaleString()}`)
-           .text(`No. de Factura: ${ventaId}`)
-           .moveDown();
+            // Información de la venta
+            doc.text(`Fecha: ${new Date(venta.fecha).toLocaleString()}`)
+               .text(`No. de Factura: ${ventaId}`)
+               .moveDown();
 
-        // Tabla de productos
-        const detalles = JSON.parse(`[${venta.detalles}]`);
-        doc.text('PRODUCTOS:', { underline: true }).moveDown();
-        
-        // Encabezados de la tabla
-        const tableTop = doc.y;
-        const tableHeaders = ['Producto', 'Cant.', 'Precio', 'Total'];
-        const columnWidths = [240, 70, 100, 100];
-        
-        doc.fontSize(10);
-        tableHeaders.forEach((header, i) => {
-            doc.text(header, doc.x + (i === 0 ? 0 : columnWidths.slice(0, i).reduce((a, b) => a + b, 0)), tableTop);
-        });
-        
-        doc.moveDown();
-        let tableY = doc.y;
+            // Tabla de productos
+            const detalles = JSON.parse(`[${venta.detalles}]`);
+            doc.text('PRODUCTOS:', { underline: true }).moveDown();
+            
+            // Encabezados de la tabla
+            const tableTop = doc.y;
+            const tableHeaders = ['Producto', 'Cant.', 'Precio', 'Total'];
+            const columnWidths = [240, 70, 100, 100];
+            
+            doc.fontSize(10);
+            tableHeaders.forEach((header, i) => {
+                doc.text(header, doc.x + (i === 0 ? 0 : columnWidths.slice(0, i).reduce((a, b) => a + b, 0)), tableTop);
+            });
+            
+            doc.moveDown();
+            let tableY = doc.y;
 
-        // Contenido de la tabla
-        detalles.forEach((item) => {
-            const y = tableY;
-            doc.text(item.nombre, doc.x, y)
-               .text(item.cantidad.toString(), doc.x + columnWidths[0], y)
-               .text(`$${item.precio.toFixed(2)}`, doc.x + columnWidths[0] + columnWidths[1], y)
-               .text(`$${item.total.toFixed(2)}`, doc.x + columnWidths[0] + columnWidths[1] + columnWidths[2], y);
-            tableY = doc.y + 10;
-            doc.y = tableY;
-        });
+            // Contenido de la tabla
+            detalles.forEach((item) => {
+                const y = tableY;
+                doc.text(item.nombre, doc.x, y)
+                   .text(item.cantidad.toString(), doc.x + columnWidths[0], y)
+                   .text(`$${item.precio.toFixed(2)}`, doc.x + columnWidths[0] + columnWidths[1], y)
+                   .text(`$${item.total.toFixed(2)}`, doc.x + columnWidths[0] + columnWidths[1] + columnWidths[2], y);
+                tableY = doc.y + 10;
+                doc.y = tableY;
+            });
 
-        doc.moveDown()
-           .fontSize(12)
-           .text(`Subtotal: $${venta.total.toFixed(2)}`, { align: 'right' })
-           .text(`IVA: Incluido`, { align: 'right' })
-           .text(`Total: $${venta.total.toFixed(2)}`, { align: 'right' })
-           .moveDown(2);
+            doc.moveDown()
+               .fontSize(12)
+               .text(`Subtotal: $${venta.total.toFixed(2)}`, { align: 'right' })
+               .text(`IVA: Incluido`, { align: 'right' })
+               .text(`Total: $${venta.total.toFixed(2)}`, { align: 'right' })
+               .moveDown(2);
 
-        // Agregar método de pago
-        doc.text(`Método de pago: ${venta.metodo_pago || 'Efectivo'}`, { align: 'left' });
+            // Agregar método de pago
+            doc.text(`Método de pago: ${venta.metodo_pago || 'Efectivo'}`, { align: 'left' });
 
-        // Finalizar el PDF
-        doc.end();
+            // Finalizar el PDF
+            doc.end();
 
-        // Esperar a que el archivo se escriba completamente
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+            // Esperar a que el archivo se escriba completamente
+            await new Promise((resolve, reject) => {
+                writeStream.on('finish', resolve);
+                writeStream.on('error', reject);
+            });
 
-        // Actualizar la venta con la referencia a la factura
-        await new Promise((resolve, reject) => {
-            db.run(
-                'UPDATE ventas SET factura_pdf = ? WHERE id = ?',
-                [`/facturas/${fileName}`, ventaId],
-                (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                }
-            );
-        });
+            // Actualizar la venta con la referencia a la factura
+            await new Promise((resolve, reject) => {
+                db.run(
+                    'UPDATE ventas SET factura_pdf = ? WHERE id = ?',
+                    [`/facturas/${fileName}`, ventaId],
+                    (err) => {
+                        if (err) reject(err);
+                        else resolve();
+                    }
+                );
+            });
 
-        res.json({
-            mensaje: 'Factura generada correctamente',
-            url: `/facturas/${fileName}`
-        });
+            res.json({
+                mensaje: 'Factura generada correctamente',
+                url: `/facturas/${fileName}`
+            });
+
+        } catch (pdfError) {
+            throw new Error(`Error al generar el contenido del PDF: ${pdfError.message}`);
+        }
 
     } catch (error) {
         console.error('Error al generar factura:', error);
-        res.status(500).json({ error: 'Error al generar la factura' });
+        
+        // Cerrar el documento PDF si está abierto
+        if (doc) {
+            try {
+                doc.end();
+            } catch (closeError) {
+                console.error('Error al cerrar el documento PDF:', closeError);
+            }
+        }
+
+        res.status(500).json({ 
+            error: 'error_factura',
+            mensaje: 'Error al generar la factura: ' + error.message 
+        });
     }
 });
 
