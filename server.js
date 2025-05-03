@@ -167,6 +167,53 @@ app.get('/api/productos/:id', autenticarToken, (req, res) => {
     });
 });
 
+// Eliminar producto
+app.delete('/api/productos/:id', autenticarToken, async (req, res) => {
+    const id = req.params.id;
+
+    try {
+        // Verificar si el producto existe y si está siendo usado en alguna venta
+        const [producto, ventasConProducto] = await Promise.all([
+            new Promise((resolve, reject) => {
+                db.get('SELECT * FROM productos WHERE id = ?', [id], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                });
+            }),
+            new Promise((resolve, reject) => {
+                db.get('SELECT COUNT(*) as count FROM detalles_venta WHERE producto_id = ?', [id], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row?.count || 0);
+                });
+            })
+        ]);
+
+        if (!producto) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        if (ventasConProducto > 0) {
+            return res.status(400).json({ 
+                error: 'producto_con_ventas',
+                mensaje: 'No se puede eliminar el producto porque tiene ventas asociadas'
+            });
+        }
+
+        // Eliminar el producto
+        await new Promise((resolve, reject) => {
+            db.run('DELETE FROM productos WHERE id = ?', [id], (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+
+        res.json({ mensaje: 'Producto eliminado correctamente' });
+    } catch (error) {
+        console.error('Error al eliminar producto:', error);
+        res.status(500).json({ error: 'Error al eliminar el producto' });
+    }
+});
+
 // Rutas de categorías
 app.get('/api/categorias', autenticarToken, (req, res) => {
     db.all('SELECT * FROM categorias', (err, categorias) => {
