@@ -1,7 +1,6 @@
 // URL del servidor - cambia según el entorno
-const API_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5502' 
-    : 'https://moskatosistema-2.onrender.com';
+const API_URL = 'https://moskatosistema-2.onrender.com';
+const API_BASE_URL = API_URL;
 
 async function autenticarUsuario(username, password) {
     try {
