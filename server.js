@@ -61,12 +61,14 @@ function inicializarBaseDeDatos() {
             FOREIGN KEY (categoria_id) REFERENCES categorias(id)
         )`);
 
-        // Tabla de ventas
+        // Tabla de ventas con usuario_id
         db.run(`CREATE TABLE IF NOT EXISTS ventas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
             fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
             total REAL,
-            metodo_pago TEXT
+            metodo_pago TEXT,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
         )`);
 
         // Tabla de detalles de venta
@@ -219,6 +221,7 @@ app.get('/api/ventas', autenticarToken, (req, res) => {
 // Ruta para crear venta
 app.post('/api/ventas', autenticarToken, async (req, res) => {
     const { productos, total, metodo_pago } = req.body;
+    const usuario_id = req.user.id; // Obtener el ID del usuario del token
 
     if (!Array.isArray(productos) || productos.length === 0 || !total) {
         return res.status(400).json({ error: 'datos_invalidos' });
@@ -254,11 +257,11 @@ app.post('/api/ventas', autenticarToken, async (req, res) => {
             });
         });
 
-        // Insertar venta
+        // Insertar venta con usuario_id
         const ventaId = await new Promise((resolve, reject) => {
             db.run(
-                'INSERT INTO ventas (total, metodo_pago, fecha) VALUES (?, ?, datetime("now"))',
-                [total, metodo_pago],
+                'INSERT INTO ventas (usuario_id, total, metodo_pago, fecha) VALUES (?, ?, ?, datetime("now"))',
+                [usuario_id, total, metodo_pago],
                 function(err) {
                     if (err) reject(err);
                     else resolve(this.lastID);

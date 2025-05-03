@@ -1,0 +1,31 @@
+# Dependencias
+node_modules/
+npm-debug.log
+yarn-debug.log*
+yarn-error.log*
+
+# Archivos de entorno
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Base de datos SQLite
+*.db
+*.db-journal
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Directorios de coverage
+coverage/
+
+# Archivos temporales
+*.tmp
+*.temp
