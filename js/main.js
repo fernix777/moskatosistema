@@ -1,5 +1,4 @@
-// URL del servidor - cambia según el entorno
-const API_URL = 'https://moskatosistema-2.onrender.com';
+// Usar API_URL de auth.js
 
 // Datos de ejemplo para productos y stock
 const productos = [

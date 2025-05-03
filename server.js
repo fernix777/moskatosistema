@@ -174,6 +174,123 @@ app.post('/api/categorias', autenticarToken, (req, res) => {
     });
 });
 
+// Rutas de ventas
+app.get('/api/ventas', autenticarToken, (req, res) => {
+    const filtro = req.query.filtro || 'todo';
+    let consulta = `
+        SELECT v.*, 
+               GROUP_CONCAT(json_object(
+                   'producto_id', dv.producto_id,
+                   'cantidad', dv.cantidad,
+                   'precio', dv.precio_unitario,
+                   'total', (dv.cantidad * dv.precio_unitario)
+               )) as detalles
+        FROM ventas v
+        LEFT JOIN detalles_venta dv ON v.id = dv.venta_id
+    `;
+
+    // Aplicar filtros de fecha
+    if (filtro === 'hoy') {
+        consulta += " WHERE date(v.fecha) = date('now')";
+    } else if (filtro === 'semana') {
+        consulta += " WHERE v.fecha >= date('now', '-7 days')";
+    } else if (filtro === 'mes') {
+        consulta += " WHERE v.fecha >= date('now', '-30 days')";
+    }
+
+    consulta += ' GROUP BY v.id ORDER BY v.fecha DESC';
+
+    db.all(consulta, [], (err, ventas) => {
+        if (err) {
+            console.error('Error al obtener ventas:', err);
+            return res.status(500).json({ error: 'Error al obtener las ventas' });
+        }
+
+        // Procesar los detalles de JSON string a array
+        ventas = ventas.map(venta => ({
+            ...venta,
+            detalles: venta.detalles ? JSON.parse(`[${venta.detalles}]`) : []
+        }));
+
+        res.json(ventas);
+    });
+});
+
+// Ruta para crear venta
+app.post('/api/ventas', autenticarToken, (req, res) => {
+    const { productos, total, metodo_pago } = req.body;
+
+    if (!Array.isArray(productos) || productos.length === 0 || !total) {
+        return res.status(400).json({ error: 'datos_invalidos' });
+    }
+
+    // Iniciar transacción
+    db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
+
+        db.run(
+            'INSERT INTO ventas (total, metodo_pago, fecha) VALUES (?, ?, datetime("now"))',
+            [total, metodo_pago],
+            function(err) {
+                if (err) {
+                    console.error('Error al crear venta:', err);
+                    db.run('ROLLBACK');
+                    return res.status(500).json({ error: 'Error al crear la venta' });
+                }
+
+                const ventaId = this.lastID;
+                let error = false;
+
+                // Insertar detalles de la venta
+                productos.forEach(producto => {
+                    if (error) return;
+
+                    db.run(
+                        'INSERT INTO detalles_venta (venta_id, producto_id, cantidad, precio_unitario) VALUES (?, ?, ?, ?)',
+                        [ventaId, producto.producto_id, producto.cantidad, producto.precio_unitario],
+                        (err) => {
+                            if (err) {
+                                console.error('Error al insertar detalle:', err);
+                                error = true;
+                            }
+                        }
+                    );
+
+                    // Actualizar stock
+                    db.run(
+                        'UPDATE productos SET stock = stock - ? WHERE id = ?',
+                        [producto.cantidad, producto.producto_id],
+                        (err) => {
+                            if (err) {
+                                console.error('Error al actualizar stock:', err);
+                                error = true;
+                            }
+                        }
+                    );
+                });
+
+                if (error) {
+                    db.run('ROLLBACK');
+                    return res.status(500).json({ error: 'Error al procesar la venta' });
+                }
+
+                db.run('COMMIT', (err) => {
+                    if (err) {
+                        console.error('Error al confirmar transacción:', err);
+                        db.run('ROLLBACK');
+                        return res.status(500).json({ error: 'Error al confirmar la venta' });
+                    }
+
+                    res.json({ 
+                        id: ventaId,
+                        mensaje: 'Venta registrada exitosamente'
+                    });
+                });
+            }
+        );
+    });
+});
+
 // Iniciar el servidor
 app.listen(port, () => {
     console.log(`Servidor corriendo en http://localhost:${port}`);

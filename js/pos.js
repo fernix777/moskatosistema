@@ -1,7 +1,4 @@
-// URL del servidor - cambia según el entorno
-const API_URL = 'https://moskatosistema-2.onrender.com';
-
-// API_BASE_URL ya está definido en auth.js
+// Usar API_URL y API_BASE_URL de auth.js
 let productos = [];
 
 // Obtener productos desde la API
