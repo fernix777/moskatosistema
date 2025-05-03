@@ -395,6 +395,122 @@ app.post('/api/categorias', autenticarToken, (req, res) => {
     });
 });
 
+// Obtener categoría por ID
+app.get('/api/categorias/:id', autenticarToken, (req, res) => {
+    const id = req.params.id;
+    db.get('SELECT * FROM categorias WHERE id = ?', [id], (err, categoria) => {
+        if (err) {
+            return res.status(500).json({ error: 'Error al obtener la categoría' });
+        }
+        if (!categoria) {
+            return res.status(404).json({ error: 'Categoría no encontrada' });
+        }
+        res.json(categoria);
+    });
+});
+
+// Actualizar categoría
+app.put('/api/categorias/:id', autenticarToken, async (req, res) => {
+    const id = req.params.id;
+    const { nombre } = req.body;
+
+    if (!nombre) {
+        return res.status(400).json({ error: 'El nombre es requerido' });
+    }
+
+    try {
+        // Verificar si la categoría existe
+        const categoria = await new Promise((resolve, reject) => {
+            db.get('SELECT * FROM categorias WHERE id = ?', [id], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (!categoria) {
+            return res.status(404).json({ error: 'Categoría no encontrada' });
+        }
+
+        // Actualizar la categoría
+        await new Promise((resolve, reject) => {
+            db.run(
+                'UPDATE categorias SET nombre = ? WHERE id = ?',
+                [nombre, id],
+                (err) => {
+                    if (err) {
+                        if (err.message.includes('UNIQUE constraint failed')) {
+                            reject(new Error('Ya existe una categoría con ese nombre'));
+                        } else {
+                            reject(err);
+                        }
+                    } else {
+                        resolve();
+                    }
+                }
+            );
+        });
+
+        res.json({ id, nombre });
+    } catch (error) {
+        console.error('Error al actualizar categoría:', error);
+        if (error.message === 'Ya existe una categoría con ese nombre') {
+            return res.status(400).json({ error: error.message });
+        }
+        res.status(500).json({ error: 'Error al actualizar la categoría' });
+    }
+});
+
+// Eliminar categoría
+app.delete('/api/categorias/:id', autenticarToken, async (req, res) => {
+    const id = req.params.id;
+
+    try {
+        // Verificar si la categoría existe
+        const categoria = await new Promise((resolve, reject) => {
+            db.get('SELECT * FROM categorias WHERE id = ?', [id], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (!categoria) {
+            return res.status(404).json({ error: 'Categoría no encontrada' });
+        }
+
+        // Verificar si hay productos usando esta categoría
+        const productosAsociados = await new Promise((resolve, reject) => {
+            db.get(
+                'SELECT COUNT(*) as count FROM productos WHERE categoria_id = ?',
+                [id],
+                (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row?.count || 0);
+                }
+            );
+        });
+
+        if (productosAsociados > 0) {
+            return res.status(400).json({
+                error: 'categoria_con_productos',
+                mensaje: 'No se puede eliminar la categoría porque tiene productos asociados'
+            });
+        }
+
+        // Eliminar la categoría
+        await new Promise((resolve, reject) => {
+            db.run('DELETE FROM categorias WHERE id = ?', [id], (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+
+        res.json({ mensaje: 'Categoría eliminada correctamente' });
+    } catch (error) {
+        console.error('Error al eliminar categoría:', error);
+        res.status(500).json({ error: 'Error al eliminar la categoría' });
+    }
+});
+
 // Rutas de ventas
 app.get('/api/ventas', autenticarToken, (req, res) => {
     const filtro = req.query.filtro || 'todo';
