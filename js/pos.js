@@ -1,5 +1,12 @@
-// Importar variables desde auth.js
+// Variables globales
 let productos = [];
+let carrito = [];
+let ventasEnEspera = [];
+let cajaAbierta = JSON.parse(sessionStorage.getItem('cajaAbierta')) || false;
+let saldoCaja = parseFloat(sessionStorage.getItem('saldoCaja')) || 0;
+let clienteActual = null;
+let facturaActual = null;
+let facturaEditando = false;
 
 // Obtener productos desde la API
 fetch(`${API_BASE_URL}/api/productos`, {
@@ -38,17 +45,6 @@ fetch(`${API_BASE_URL}/api/productos`, {
         </div>
     `;
 });
-
-// Estado global
-let carrito = [];
-let ventasEnEspera = [];
-let cajaAbierta = JSON.parse(sessionStorage.getItem('cajaAbierta')) || false;
-let saldoCaja = parseFloat(sessionStorage.getItem('saldoCaja')) || 0;
-let clienteActual = null;
-
-// Variables globales para facturación
-let facturaActual = null;
-let facturaEditando = false;
 
 // Funciones de caja
 function abrirCaja(montoInicial) {
@@ -1155,9 +1151,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('closeDrawerBtn').classList.add('disabled');
     }
 });
-
-// Variables globales
-let clienteActual = null;
 
 // Funciones de cliente
 async function buscarCliente() {
