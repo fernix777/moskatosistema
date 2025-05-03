@@ -10,7 +10,6 @@ async function autenticarUsuario(username, password) {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
             },
-            credentials: 'include',
             body: JSON.stringify({username, password})
         });
         

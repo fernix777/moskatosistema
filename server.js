@@ -14,9 +14,9 @@ const port = process.env.PORT || 5502;
 
 // Middleware
 app.use(cors({
-    origin: ['http://localhost:5502', 'https://moskatosistema-2.onrender.com'],
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    credentials: true
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 app.use(express.json());
 app.use(express.static(__dirname));
