@@ -328,6 +328,75 @@
         </div>
     </div>
 
+    <!-- Modal Cliente -->
+    <div class="modal fade" id="modalCliente" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Cliente</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Búsqueda de cliente -->
+                    <div class="mb-4">
+                        <label class="form-label">Buscar por teléfono</label>
+                        <div class="input-group">
+                            <input type="tel" class="form-control" id="telefonoBuscar" placeholder="Ingrese el teléfono">
+                            <button class="btn btn-primary" onclick="buscarCliente()">
+                                <i class="fas fa-search"></i> Buscar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Información del cliente existente -->
+                    <div id="clienteInfo" class="d-none">
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h6 class="card-title mb-3">Información del Cliente</h6>
+                                <p class="mb-1"><strong>Nombre:</strong> <span id="clienteNombre"></span></p>
+                                <p class="mb-1"><strong>Teléfono:</strong> <span id="clienteTelefono"></span></p>
+                                <p class="mb-1"><strong>Email:</strong> <span id="clienteEmail"></span></p>
+                                <p class="mb-1"><strong>Dirección:</strong> <span id="clienteDireccion"></span></p>
+                                <p class="mb-1"><strong>Puntos:</strong> <span id="clientePuntos"></span></p>
+                                <p class="mb-0"><strong>Nivel:</strong> <span id="clienteNivel"></span></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Formulario de nuevo cliente -->
+                    <div id="formNuevoCliente" class="d-none">
+                        <h6 class="mb-3">Registrar Nuevo Cliente</h6>
+                        <form id="clienteForm" onsubmit="registrarCliente(event)">
+                            <div class="mb-3">
+                                <label class="form-label">Nombre</label>
+                                <input type="text" class="form-control" id="nombreCliente" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Apellido</label>
+                                <input type="text" class="form-control" id="apellidoCliente" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Teléfono</label>
+                                <input type="tel" class="form-control" id="telefonoCliente" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Email</label>
+                                <input type="email" class="form-control" id="emailCliente">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Dirección</label>
+                                <textarea class="form-control" id="direccionCliente" rows="2"></textarea>
+                            </div>
+                            <div class="text-end">
+                                <button type="submit" class="btn btn-primary">Registrar Cliente</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/js/auth.js"></script>
     <script src="/js/loyalty.js"></script>

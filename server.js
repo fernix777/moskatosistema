@@ -108,6 +108,20 @@ function inicializarBaseDeDatos() {
             FOREIGN KEY (venta_id) REFERENCES ventas(id),
             FOREIGN KEY (producto_id) REFERENCES productos(id)
         )`);
+
+        // Tabla de clientes
+        db.run(`CREATE TABLE IF NOT EXISTS clientes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            apellido TEXT NOT NULL,
+            telefono TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE,
+            direccion TEXT,
+            puntos INTEGER DEFAULT 0,
+            nivel TEXT DEFAULT 'Bronce',
+            total_compras REAL DEFAULT 0,
+            fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`);
     });
 }
 
@@ -785,6 +799,92 @@ app.delete('/api/usuarios/:id', autenticarToken, async (req, res) => {
     } catch (error) {
         console.error('Error al eliminar usuario:', error);
         res.status(500).json({ error: 'Error al eliminar el usuario' });
+    }
+});
+
+// Rutas de clientes
+app.get('/api/clientes', autenticarToken, (req, res) => {
+    db.all('SELECT * FROM clientes', (err, clientes) => {
+        if (err) {
+            return res.status(500).json({ error: 'Error al obtener clientes' });
+        }
+        res.json(clientes);
+    });
+});
+
+// Buscar cliente por teléfono
+app.get('/api/clientes/buscar/:telefono', autenticarToken, (req, res) => {
+    const telefono = req.params.telefono;
+    db.get('SELECT * FROM clientes WHERE telefono = ?', [telefono], (err, cliente) => {
+        if (err) {
+            return res.status(500).json({ error: 'Error al buscar cliente' });
+        }
+        if (!cliente) {
+            return res.status(404).json({ error: 'Cliente no encontrado' });
+        }
+        res.json(cliente);
+    });
+});
+
+// Crear cliente
+app.post('/api/clientes', autenticarToken, async (req, res) => {
+    const { nombre, apellido, telefono, email, direccion } = req.body;
+
+    if (!nombre || !apellido || !telefono) {
+        return res.status(400).json({ error: 'Nombre, apellido y teléfono son requeridos' });
+    }
+
+    try {
+        // Verificar si el teléfono ya existe
+        const clienteExistente = await new Promise((resolve, reject) => {
+            db.get('SELECT id FROM clientes WHERE telefono = ?', [telefono], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (clienteExistente) {
+            return res.status(400).json({ error: 'Ya existe un cliente con ese teléfono' });
+        }
+
+        // Verificar si el email ya existe (si se proporcionó)
+        if (email) {
+            const emailExistente = await new Promise((resolve, reject) => {
+                db.get('SELECT id FROM clientes WHERE email = ?', [email], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                });
+            });
+
+            if (emailExistente) {
+                return res.status(400).json({ error: 'Ya existe un cliente con ese email' });
+            }
+        }
+
+        // Insertar el nuevo cliente
+        const result = await new Promise((resolve, reject) => {
+            db.run(
+                'INSERT INTO clientes (nombre, apellido, telefono, email, direccion) VALUES (?, ?, ?, ?, ?)',
+                [nombre, apellido, telefono, email, direccion],
+                function(err) {
+                    if (err) reject(err);
+                    else resolve(this.lastID);
+                }
+            );
+        });
+
+        // Obtener el cliente creado
+        const nuevoCliente = await new Promise((resolve, reject) => {
+            db.get('SELECT * FROM clientes WHERE id = ?', [result], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        res.status(201).json(nuevoCliente);
+    } catch (error) {
+        console.error('Error al crear cliente:', error);
+        res.status(500).json({ error: 'Error al crear el cliente' });
     }
 });
 

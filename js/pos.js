@@ -1155,3 +1155,105 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('closeDrawerBtn').classList.add('disabled');
     }
 });
+
+// Variables globales
+let clienteActual = null;
+
+// Funciones de cliente
+async function buscarCliente() {
+    const telefono = document.getElementById('telefonoBuscar').value;
+    if (!telefono) {
+        alert('Por favor ingrese un número de teléfono');
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/clientes/buscar/${telefono}`, {
+            headers: {
+                'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}`
+            }
+        });
+
+        if (response.status === 404) {
+            // Cliente no encontrado, mostrar formulario de registro
+            document.getElementById('clienteInfo').classList.add('d-none');
+            document.getElementById('formNuevoCliente').classList.remove('d-none');
+            document.getElementById('telefonoCliente').value = telefono;
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error('Error al buscar cliente');
+        }
+
+        const cliente = await response.json();
+        mostrarInfoCliente(cliente);
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error al buscar el cliente');
+    }
+}
+
+function mostrarInfoCliente(cliente) {
+    clienteActual = cliente;
+    document.getElementById('formNuevoCliente').classList.add('d-none');
+    document.getElementById('clienteInfo').classList.remove('d-none');
+
+    document.getElementById('clienteNombre').textContent = `${cliente.nombre} ${cliente.apellido}`;
+    document.getElementById('clienteTelefono').textContent = cliente.telefono;
+    document.getElementById('clienteEmail').textContent = cliente.email || 'No especificado';
+    document.getElementById('clienteDireccion').textContent = cliente.direccion || 'No especificada';
+    document.getElementById('clientePuntos').textContent = cliente.puntos;
+    document.getElementById('clienteNivel').textContent = cliente.nivel;
+}
+
+async function registrarCliente(event) {
+    event.preventDefault();
+
+    const datosCliente = {
+        nombre: document.getElementById('nombreCliente').value,
+        apellido: document.getElementById('apellidoCliente').value,
+        telefono: document.getElementById('telefonoCliente').value,
+        email: document.getElementById('emailCliente').value,
+        direccion: document.getElementById('direccionCliente').value
+    };
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/clientes`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}`
+            },
+            body: JSON.stringify(datosCliente)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Error al registrar el cliente');
+        }
+
+        const cliente = await response.json();
+        mostrarInfoCliente(cliente);
+        alert('Cliente registrado exitosamente');
+    } catch (error) {
+        console.error('Error:', error);
+        alert(error.message);
+    }
+}
+
+// Inicialización y eventos
+document.addEventListener('DOMContentLoaded', function() {
+    // ...existing code...
+
+    // Configurar el botón de cliente
+    const customerBtn = document.getElementById('customerBtn');
+    if (customerBtn) {
+        customerBtn.addEventListener('click', () => {
+            const modalCliente = new bootstrap.Modal(document.getElementById('modalCliente'));
+            modalCliente.show();
+        });
+    }
+
+    // ...existing code...
+});
