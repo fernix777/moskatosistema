@@ -6,10 +6,13 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import multer from 'multer';
-import fs from 'fs/promises';
+import fs from 'fs-extra';
+import PDFDocument from 'pdfkit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+await fs.ensureDir(join(__dirname, 'facturas'));
 
 const app = express();
 const port = process.env.PORT || 5502;
@@ -887,6 +890,158 @@ app.post('/api/clientes', autenticarToken, async (req, res) => {
         res.status(500).json({ error: 'Error al crear el cliente' });
     }
 });
+
+// Rutas de facturas
+app.post('/api/facturas/:ventaId', autenticarToken, async (req, res) => {
+    const ventaId = req.params.ventaId;
+    const clienteId = req.body.clienteId;
+
+    try {
+        // Obtener datos de la venta
+        const venta = await new Promise((resolve, reject) => {
+            db.get(`
+                SELECT v.*, 
+                       GROUP_CONCAT(json_object(
+                           'producto_id', dv.producto_id,
+                           'cantidad', dv.cantidad,
+                           'precio', dv.precio_unitario,
+                           'total', (dv.cantidad * dv.precio_unitario),
+                           'nombre', p.nombre
+                       )) as detalles
+                FROM ventas v
+                LEFT JOIN detalles_venta dv ON v.id = dv.venta_id
+                LEFT JOIN productos p ON dv.producto_id = p.id
+                WHERE v.id = ?
+                GROUP BY v.id
+            `, [ventaId], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (!venta) {
+            return res.status(404).json({ error: 'Venta no encontrada' });
+        }
+
+        // Obtener datos del cliente
+        const cliente = await new Promise((resolve, reject) => {
+            db.get('SELECT * FROM clientes WHERE id = ?', [clienteId], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (!cliente) {
+            return res.status(404).json({ error: 'Cliente no encontrado' });
+        }
+
+        // Crear el PDF
+        const doc = new PDFDocument({
+            size: 'A4',
+            margin: 50
+        });
+
+        // Generar nombre único para el archivo
+        const fileName = `factura-${ventaId}-${Date.now()}.pdf`;
+        const filePath = join(__dirname, 'facturas', fileName);
+
+        // Pipe el PDF a un archivo
+        doc.pipe(fs.createWriteStream(filePath));
+
+        // Agregar contenido al PDF
+        doc.fontSize(20).text('FACTURA', { align: 'center' });
+        doc.moveDown();
+
+        // Información del negocio
+        doc.fontSize(12)
+           .text('MOSKATO BEBIDAS', { align: 'left' })
+           .text('RFC: XXX000000XXX')
+           .text('Dirección: Tu dirección aquí')
+           .text('Tel: Tu teléfono aquí')
+           .moveDown();
+
+        // Información del cliente
+        doc.text('CLIENTE')
+           .text(`Nombre: ${cliente.nombre} ${cliente.apellido}`)
+           .text(`Teléfono: ${cliente.telefono}`)
+           .text(`Email: ${cliente.email || 'No especificado'}`)
+           .text(`Dirección: ${cliente.direccion || 'No especificada'}`)
+           .moveDown();
+
+        // Información de la venta
+        doc.text(`Fecha: ${new Date(venta.fecha).toLocaleString()}`)
+           .text(`No. de Factura: ${ventaId}`)
+           .moveDown();
+
+        // Tabla de productos
+        const detalles = JSON.parse(`[${venta.detalles}]`);
+        doc.text('PRODUCTOS:', { underline: true }).moveDown();
+        
+        // Encabezados de la tabla
+        const tableTop = doc.y;
+        const tableHeaders = ['Producto', 'Cant.', 'Precio', 'Total'];
+        const columnWidths = [240, 70, 100, 100];
+        
+        doc.fontSize(10);
+        tableHeaders.forEach((header, i) => {
+            doc.text(header, doc.x + (i === 0 ? 0 : columnWidths.slice(0, i).reduce((a, b) => a + b, 0)), tableTop);
+        });
+        
+        doc.moveDown();
+        let tableY = doc.y;
+
+        // Contenido de la tabla
+        detalles.forEach((item) => {
+            const y = tableY;
+            doc.text(item.nombre, doc.x, y)
+               .text(item.cantidad.toString(), doc.x + columnWidths[0], y)
+               .text(`$${item.precio.toFixed(2)}`, doc.x + columnWidths[0] + columnWidths[1], y)
+               .text(`$${item.total.toFixed(2)}`, doc.x + columnWidths[0] + columnWidths[1] + columnWidths[2], y);
+            tableY = doc.y + 10;
+            doc.y = tableY;
+        });
+
+        doc.moveDown()
+           .fontSize(12)
+           .text(`Subtotal: $${venta.total.toFixed(2)}`, { align: 'right' })
+           .text(`IVA: Incluido`, { align: 'right' })
+           .text(`Total: $${venta.total.toFixed(2)}`, { align: 'right' })
+           .moveDown(2);
+
+        // Agregar método de pago
+        doc.text(`Método de pago: ${venta.metodo_pago || 'Efectivo'}`, { align: 'left' });
+
+        // Finalizar el PDF
+        doc.end();
+
+        // Esperar a que el archivo se escriba completamente
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        // Actualizar la venta con la referencia a la factura
+        await new Promise((resolve, reject) => {
+            db.run(
+                'UPDATE ventas SET factura_pdf = ? WHERE id = ?',
+                [`/facturas/${fileName}`, ventaId],
+                (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                }
+            );
+        });
+
+        res.json({
+            mensaje: 'Factura generada correctamente',
+            url: `/facturas/${fileName}`
+        });
+
+    } catch (error) {
+        console.error('Error al generar factura:', error);
+        res.status(500).json({ error: 'Error al generar la factura' });
+    }
+});
+
+// Servir archivos de facturas
+app.use('/facturas', autenticarToken, express.static(join(__dirname, 'facturas')));
 
 // Iniciar el servidor
 app.listen(port, () => {

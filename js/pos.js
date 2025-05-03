@@ -915,9 +915,10 @@ function procesarVenta(datosFactura = null) {
         }
     }
 
-    if (requireInvoice && !datosFactura) {
-        const invoiceModal = new bootstrap.Modal(document.getElementById('invoiceModal'));
-        invoiceModal.show();
+    if (requireInvoice && !clienteActual) {
+        alert('Para generar una factura, primero debe seleccionar un cliente');
+        const modalCliente = new bootstrap.Modal(document.getElementById('modalCliente'));
+        modalCliente.show();
         return;
     }
 
@@ -936,55 +937,59 @@ function procesarVenta(datosFactura = null) {
             })),
             total: total,
             metodo_pago: metodoPago,
-            datos_factura: datosFactura
+            datos_factura: datosFactura,
+            cliente_id: clienteActual?.id
         })
     })
     .then(async response => {
         const data = await response.json();
         if (!response.ok) {
-            if (data.error === 'stock_insuficiente') {
-                throw new Error(data.mensaje || 'No hay suficiente stock para uno o más productos.');
-            } else if (data.error === 'datos_invalidos') {
-                throw new Error('Los datos de la venta son inválidos.');
-            } else {
-                throw new Error(data.mensaje || 'Error al procesar la venta');
-            }
+            throw new Error(data.mensaje || 'Error al procesar la venta');
         }
         return data;
     })
-    .then(data => {
+    .then(async data => {
+        // Si se requiere factura, generarla
+        if (requireInvoice && clienteActual) {
+            try {
+                const facturaResponse = await fetch(`${API_BASE_URL}/api/facturas/${data.id}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}`
+                    },
+                    body: JSON.stringify({
+                        clienteId: clienteActual.id
+                    })
+                });
+
+                if (!facturaResponse.ok) {
+                    throw new Error('Error al generar la factura');
+                }
+
+                const facturaData = await facturaResponse.json();
+                
+                // Abrir la factura en una nueva ventana
+                window.open(`${API_BASE_URL}${facturaData.url}`, '_blank');
+            } catch (error) {
+                console.error('Error al generar factura:', error);
+                alert('Error al generar la factura: ' + error.message);
+            }
+        }
+
         // Actualizar saldo de caja
         if (metodoPago === 'cash') {
             saldoCaja += total;
             sessionStorage.setItem('saldoCaja', saldoCaja.toString());
         }
 
-        // Imprimir ticket o factura
-        if (datosFactura) {
-            imprimirFactura({
-                id: data.id,
-                items: [...carrito],
-                total: total,
-                metodoPago: metodoPago,
-                fecha: new Date().toISOString(),
-                datosFactura: datosFactura
-            });
-        } else {
-            imprimirTicket({
-                id: data.id,
-                items: [...carrito],
-                total: total,
-                metodoPago: metodoPago,
-                fecha: new Date().toISOString()
-            });
-        }
-
-        // Limpiar carrito
+        // Limpiar carrito y formulario
         carrito = [];
         actualizarCarrito();
         document.getElementById('cashAmount').value = '';
         document.getElementById('changeAmount').textContent = '$0.00';
         document.getElementById('requireInvoice').checked = false;
+        clienteActual = null;
 
         // Recargar productos para actualizar stock
         return fetch(`${API_BASE_URL}/api/productos`, {
