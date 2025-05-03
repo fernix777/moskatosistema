@@ -363,6 +363,110 @@ const adminModule = {
         } catch (e) {
             alert('Error al cargar datos del producto');
         }
+    },
+
+    // Cargar usuarios
+    async cargarUsuarios() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/usuarios`, {
+                headers: {
+                    'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Error al cargar los usuarios');
+            }
+
+            const usuarios = await response.json();
+            const tbody = document.querySelector('#tablaUsuarios tbody');
+            tbody.innerHTML = '';
+
+            usuarios.forEach(usuario => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${usuario.username}</td>
+                    <td><span class="badge ${usuario.rol === 'admin' ? 'bg-danger' : 'bg-primary'}">${usuario.rol}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-danger" onclick="adminModule.eliminarUsuario(${usuario.id})">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        } catch (error) {
+            console.error('Error:', error);
+            alert('No se pudieron cargar los usuarios');
+        }
+    },
+
+    // Manejar creación de usuario
+    manejarCreacionUsuario: async function(event) {
+        event.preventDefault();
+        const form = event.target;
+        const errorDiv = document.getElementById('errorUsuario');
+        errorDiv.textContent = '';
+
+        try {
+            const token = sessionStorage.getItem('jwtToken');
+            if (!token) {
+                throw new Error('No se encontró el token de autenticación');
+            }
+
+            const datosUsuario = {
+                username: form.username.value,
+                password: form.password.value,
+                rol: form.rol.value
+            };
+
+            const response = await fetch(`${API_BASE_URL}/api/usuarios`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(datosUsuario)
+            });
+
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || 'Error al crear el usuario');
+            }
+
+            alert('Usuario creado exitosamente');
+            form.reset();
+            await this.cargarUsuarios();
+            bootstrap.Modal.getInstance(document.getElementById('modalUsuario')).hide();
+        } catch (error) {
+            console.error('Error al crear usuario:', error);
+            errorDiv.textContent = error.message;
+        }
+    },
+
+    // Eliminar usuario
+    eliminarUsuario: async function(id) {
+        if (!confirm('¿Está seguro de eliminar este usuario?')) return;
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/usuarios/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}`
+                }
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.mensaje || 'Error al eliminar el usuario');
+            }
+
+            await this.cargarUsuarios();
+            alert('Usuario eliminado exitosamente');
+        } catch (error) {
+            alert(error.message);
+        }
     }
 };
 

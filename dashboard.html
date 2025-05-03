@@ -161,29 +161,31 @@
                     <h5 class="modal-title">Nuevo Usuario</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body">
-                    <form id="formUsuario">
+                <form id="formUsuario" onsubmit="adminModule.manejarCreacionUsuario(event)">
+                    <div class="modal-body">
                         <div class="mb-3">
-                            <label class="form-label">Usuario</label>
+                            <label class="form-label">Nombre de Usuario</label>
                             <input type="text" class="form-control" name="username" required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Contraseña</label>
-                            <input type="password" class="form-control" name="password" required autocomplete="current-password">
+                            <input type="password" class="form-control" name="password" required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Rol</label>
                             <select class="form-select" name="rol" required>
+                                <option value="">Seleccione un rol</option>
                                 <option value="admin">Administrador</option>
                                 <option value="cajero">Cajero</option>
                             </select>
                         </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" form="formUsuario" class="btn btn-primary">Guardar</button>
-                </div>
+                        <div id="errorUsuario" class="text-danger mt-2"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Guardar</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -337,8 +339,9 @@
             verificarSesion();
             
             // Inicializar el módulo de administración
+            adminModule.cargarUsuarios(); // Agregar esta línea
             adminModule.cargarCategorias();
-            adminModule.cargarProductos();  // Agregar esta línea
+            adminModule.cargarProductos();
             adminModule.actualizarEstadisticas();
 
             // Configurar event listeners para el botón de agregar

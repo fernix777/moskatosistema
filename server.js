@@ -131,9 +131,9 @@ function autenticarToken(req, res, next) {
 
 // Rutas de autenticación
 app.post('/api/login', (req, res) => {
-    const { username, password } = req.body;
+    const { username, password, role } = req.body;
 
-    db.get('SELECT * FROM usuarios WHERE username = ?', [username], (err, user) => {
+    db.get('SELECT * FROM usuarios WHERE username = ? AND rol = ?', [username, role], (err, user) => {
         if (err) {
             return res.status(500).json({ error: 'Error en el servidor' });
         }
@@ -654,6 +654,137 @@ app.post('/api/ventas', autenticarToken, async (req, res) => {
             error: 'Error al procesar la venta',
             mensaje: error.message
         });
+    }
+});
+
+// Rutas de usuarios
+app.get('/api/usuarios', autenticarToken, (req, res) => {
+    if (req.user.rol !== 'admin') {
+        return res.status(403).json({ error: 'No autorizado' });
+    }
+
+    db.all('SELECT id, username, rol FROM usuarios', (err, usuarios) => {
+        if (err) {
+            return res.status(500).json({ error: 'Error al obtener usuarios' });
+        }
+        res.json(usuarios);
+    });
+});
+
+app.post('/api/usuarios', autenticarToken, async (req, res) => {
+    if (req.user.rol !== 'admin') {
+        return res.status(403).json({ error: 'No autorizado' });
+    }
+
+    const { username, password, rol } = req.body;
+
+    if (!username || !password || !rol) {
+        return res.status(400).json({ error: 'Todos los campos son requeridos' });
+    }
+
+    if (rol !== 'admin' && rol !== 'cajero') {
+        return res.status(400).json({ error: 'Rol inválido' });
+    }
+
+    try {
+        // Verificar si el usuario ya existe
+        const usuarioExistente = await new Promise((resolve, reject) => {
+            db.get('SELECT id FROM usuarios WHERE username = ?', [username], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (usuarioExistente) {
+            return res.status(400).json({ error: 'El nombre de usuario ya existe' });
+        }
+
+        // Hashear la contraseña
+        const salt = bcrypt.genSaltSync(10);
+        const hashedPassword = bcrypt.hashSync(password, salt);
+
+        // Insertar el nuevo usuario
+        const result = await new Promise((resolve, reject) => {
+            db.run(
+                'INSERT INTO usuarios (username, password, rol) VALUES (?, ?, ?)',
+                [username, hashedPassword, rol],
+                function(err) {
+                    if (err) reject(err);
+                    else resolve(this.lastID);
+                }
+            );
+        });
+
+        res.status(201).json({
+            id: result,
+            username,
+            rol
+        });
+    } catch (error) {
+        console.error('Error al crear usuario:', error);
+        res.status(500).json({ error: 'Error al crear el usuario' });
+    }
+});
+
+// Eliminar usuario
+app.delete('/api/usuarios/:id', autenticarToken, async (req, res) => {
+    if (req.user.rol !== 'admin') {
+        return res.status(403).json({ error: 'No autorizado' });
+    }
+
+    const id = req.params.id;
+
+    try {
+        // Verificar si el usuario existe
+        const usuario = await new Promise((resolve, reject) => {
+            db.get('SELECT * FROM usuarios WHERE id = ?', [id], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (!usuario) {
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        // No permitir eliminar el propio usuario
+        if (usuario.id === req.user.id) {
+            return res.status(400).json({ 
+                error: 'No se puede eliminar el usuario actual' 
+            });
+        }
+
+        // Verificar si hay ventas asociadas
+        const ventasAsociadas = await new Promise((resolve, reject) => {
+            db.get(
+                'SELECT COUNT(*) as count FROM ventas WHERE usuario_id = ?',
+                [id],
+                (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row?.count || 0);
+                }
+            );
+        });
+
+        if (ventasAsociadas > 0) {
+            return res.status(400).json({
+                error: 'usuario_con_ventas',
+                mensaje: 'No se puede eliminar el usuario porque tiene ventas registradas'
+            });
+        }
+
+        // Eliminar el usuario
+        await new Promise((resolve, reject) => {
+            db.run('DELETE FROM usuarios WHERE id = ?', [id], (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+
+        res.json({ mensaje: 'Usuario eliminado correctamente' });
+    } catch (error) {
+        console.error('Error al eliminar usuario:', error);
+        res.status(500).json({ error: 'Error al eliminar el usuario' });
     }
 });
 

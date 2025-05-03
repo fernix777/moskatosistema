@@ -4,13 +4,14 @@ window.API_BASE_URL = window.API_URL;
 
 async function autenticarUsuario(username, password) {
     try {
+        const role = document.getElementById('role').value;
         const response = await fetch(`${API_URL}/api/login`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
             },
-            body: JSON.stringify({username, password})
+            body: JSON.stringify({username, password, role})
         });
         
         if (!response.ok) {
