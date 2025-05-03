@@ -1,6 +1,6 @@
 // URL del servidor - cambia según el entorno
-const API_URL = 'https://moskatosistema-2.onrender.com';
-const API_BASE_URL = API_URL;
+window.API_URL = 'https://moskatosistema-2.onrender.com';
+window.API_BASE_URL = window.API_URL;
 
 async function autenticarUsuario(username, password) {
     try {

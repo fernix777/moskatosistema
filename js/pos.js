@@ -1,4 +1,4 @@
-// Usar API_URL y API_BASE_URL de auth.js
+// Importar variables desde auth.js
 let productos = [];
 
 // Obtener productos desde la API
