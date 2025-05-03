@@ -922,6 +922,19 @@ function procesarVenta(datosFactura = null) {
         return;
     }
 
+    // Crear el objeto de venta
+    const ventaData = {
+        productos: carrito.map(item => ({
+            producto_id: item.productoId,
+            cantidad: item.cantidad,
+            precio_unitario: item.precio
+        })),
+        total: total,
+        metodo_pago: metodoPago,
+        datos_factura: datosFactura,
+        cliente_id: clienteActual?.id
+    };
+
     // Enviar venta al servidor
     fetch(`${API_BASE_URL}/api/ventas`, {
         method: 'POST',
@@ -929,17 +942,7 @@ function procesarVenta(datosFactura = null) {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}`
         },
-        body: JSON.stringify({
-            productos: carrito.map(item => ({
-                producto_id: item.productoId,
-                cantidad: item.cantidad,
-                precio_unitario: item.precio
-            })),
-            total: total,
-            metodo_pago: metodoPago,
-            datos_factura: datosFactura,
-            cliente_id: clienteActual?.id
-        })
+        body: JSON.stringify(ventaData)
     })
     .then(async response => {
         const data = await response.json();
@@ -949,9 +952,9 @@ function procesarVenta(datosFactura = null) {
         return data;
     })
     .then(async data => {
-        // Si se requiere factura, generarla
-        if (requireInvoice && clienteActual) {
-            try {
+        try {
+            // Si se requiere factura, generarla
+            if (requireInvoice && clienteActual) {
                 const facturaResponse = await fetch(`${API_BASE_URL}/api/facturas/${data.id}`, {
                     method: 'POST',
                     headers: {
@@ -964,39 +967,39 @@ function procesarVenta(datosFactura = null) {
                 });
 
                 if (!facturaResponse.ok) {
-                    throw new Error('Error al generar la factura');
+                    const errorData = await facturaResponse.json();
+                    throw new Error(errorData.error || 'Error al generar la factura');
                 }
 
                 const facturaData = await facturaResponse.json();
-                
-                // Abrir la factura en una nueva ventana
                 window.open(`${API_BASE_URL}${facturaData.url}`, '_blank');
-            } catch (error) {
-                console.error('Error al generar factura:', error);
-                alert('Error al generar la factura: ' + error.message);
             }
-        }
 
-        // Actualizar saldo de caja
-        if (metodoPago === 'cash') {
-            saldoCaja += total;
-            sessionStorage.setItem('saldoCaja', saldoCaja.toString());
-        }
-
-        // Limpiar carrito y formulario
-        carrito = [];
-        actualizarCarrito();
-        document.getElementById('cashAmount').value = '';
-        document.getElementById('changeAmount').textContent = '$0.00';
-        document.getElementById('requireInvoice').checked = false;
-        clienteActual = null;
-
-        // Recargar productos para actualizar stock
-        return fetch(`${API_BASE_URL}/api/productos`, {
-            headers: {
-                'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}`
+            // Actualizar saldo de caja
+            if (metodoPago === 'cash') {
+                saldoCaja += total;
+                sessionStorage.setItem('saldoCaja', saldoCaja.toString());
             }
-        });
+
+            // Limpiar carrito y formulario
+            carrito = [];
+            actualizarCarrito();
+            document.getElementById('cashAmount').value = '';
+            document.getElementById('changeAmount').textContent = '$0.00';
+            document.getElementById('requireInvoice').checked = false;
+            clienteActual = null;
+
+            // Recargar productos
+            return fetch(`${API_BASE_URL}/api/productos`, {
+                headers: {
+                    'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}`
+                }
+            });
+        } catch (error) {
+            console.error('Error al generar factura:', error);
+            alert('Error al generar la factura: ' + error.message);
+            throw error; // Re-lanzar el error para el siguiente catch
+        }
     })
     .then(response => response.json())
     .then(data => {

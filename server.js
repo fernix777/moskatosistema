@@ -12,7 +12,9 @@ import PDFDocument from 'pdfkit';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-await fs.ensureDir(join(__dirname, 'facturas'));
+// Asegurarnos de que los directorios necesarios existan
+const facturasDir = join(__dirname, 'facturas');
+await fs.ensureDir(facturasDir);
 
 const app = express();
 const port = process.env.PORT || 5502;
@@ -1055,7 +1057,7 @@ app.post('/api/facturas/:ventaId', autenticarToken, async (req, res) => {
 });
 
 // Servir archivos de facturas
-app.use('/facturas', autenticarToken, express.static(join(__dirname, 'facturas')));
+app.use('/facturas', autenticarToken, express.static(facturasDir));
 
 // Iniciar el servidor
 app.listen(port, () => {
