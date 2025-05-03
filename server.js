@@ -5,6 +5,8 @@ import bcrypt from 'bcryptjs';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import multer from 'multer';
+import fs from 'fs/promises';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -20,6 +22,31 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.static(__dirname));
+
+// Configurar multer para el manejo de archivos
+const storage = multer.diskStorage({
+    destination: function(req, file, cb) {
+        cb(null, join(__dirname, 'images'));
+    },
+    filename: function(req, file, cb) {
+        const uniqueSuffix = Date.now();
+        cb(null, uniqueSuffix + '-' + file.originalname.toLowerCase().replace(/\s+/g, '_'));
+    }
+});
+
+const upload = multer({ 
+    storage: storage,
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Solo se permiten imágenes'));
+        }
+    },
+    limits: {
+        fileSize: 5 * 1024 * 1024 // 5MB
+    }
+});
 
 // Conectar a la base de datos SQLite
 const db = new sqlite3.Database('tienda.db', (err) => {
@@ -148,6 +175,69 @@ app.get('/api/productos', autenticarToken, (req, res) => {
     });
 });
 
+// Crear producto
+app.post('/api/productos', autenticarToken, async (req, res) => {
+    const { nombre, codigo_barras, categoria_id, stock, precio_costo, precio_venta } = req.body;
+
+    // Validar datos requeridos
+    if (!nombre || !codigo_barras || !categoria_id || typeof stock !== 'number' || 
+        typeof precio_costo !== 'number' || typeof precio_venta !== 'number') {
+        return res.status(400).json({ error: 'Faltan campos requeridos o son inválidos' });
+    }
+
+    try {
+        // Verificar si el código de barras ya existe
+        const existente = await new Promise((resolve, reject) => {
+            db.get('SELECT id FROM productos WHERE codigo_barras = ?', [codigo_barras], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (existente) {
+            return res.status(400).json({ 
+                error: 'codigo_barras_existente',
+                mensaje: 'Ya existe un producto con este código de barras'
+            });
+        }
+
+        // Insertar el producto
+        const result = await new Promise((resolve, reject) => {
+            db.run(
+                `INSERT INTO productos (
+                    nombre, codigo_barras, categoria_id, stock, 
+                    precio_costo, precio_venta
+                ) VALUES (?, ?, ?, ?, ?, ?)`,
+                [nombre, codigo_barras, categoria_id, stock, precio_costo, precio_venta],
+                function(err) {
+                    if (err) reject(err);
+                    else resolve(this.lastID);
+                }
+            );
+        });
+
+        // Obtener el producto creado
+        const nuevoProducto = await new Promise((resolve, reject) => {
+            db.get(
+                `SELECT p.*, c.nombre as categoria_nombre 
+                 FROM productos p 
+                 LEFT JOIN categorias c ON p.categoria_id = c.id 
+                 WHERE p.id = ?`,
+                [result],
+                (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                }
+            );
+        });
+
+        res.status(201).json(nuevoProducto);
+    } catch (error) {
+        console.error('Error al crear producto:', error);
+        res.status(500).json({ error: 'Error al crear el producto' });
+    }
+});
+
 // Obtener producto por ID
 app.get('/api/productos/:id', autenticarToken, (req, res) => {
     const id = req.params.id;
@@ -211,6 +301,69 @@ app.delete('/api/productos/:id', autenticarToken, async (req, res) => {
     } catch (error) {
         console.error('Error al eliminar producto:', error);
         res.status(500).json({ error: 'Error al eliminar el producto' });
+    }
+});
+
+// Subir imagen de producto
+app.post('/api/productos/:id/imagen', autenticarToken, upload.single('imagen'), async (req, res) => {
+    const id = req.params.id;
+    
+    if (!req.file) {
+        return res.status(400).json({ error: 'No se proporcionó ninguna imagen' });
+    }
+
+    try {
+        // Obtener el producto
+        const producto = await new Promise((resolve, reject) => {
+            db.get('SELECT * FROM productos WHERE id = ?', [id], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (!producto) {
+            // Eliminar el archivo subido si el producto no existe
+            await fs.unlink(req.file.path);
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        // Si el producto ya tenía una imagen, eliminarla
+        if (producto.imagen) {
+            const imagenAnterior = join(__dirname, producto.imagen);
+            try {
+                await fs.unlink(imagenAnterior);
+            } catch (error) {
+                console.error('Error al eliminar imagen anterior:', error);
+            }
+        }
+
+        // Actualizar la ruta de la imagen en la base de datos
+        const rutaImagen = '/images/' + req.file.filename;
+        await new Promise((resolve, reject) => {
+            db.run(
+                'UPDATE productos SET imagen = ? WHERE id = ?',
+                [rutaImagen, id],
+                (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                }
+            );
+        });
+
+        res.json({ 
+            mensaje: 'Imagen subida correctamente',
+            ruta: rutaImagen
+        });
+    } catch (error) {
+        // Si hay un error, eliminar el archivo subido
+        try {
+            await fs.unlink(req.file.path);
+        } catch (unlinkError) {
+            console.error('Error al eliminar archivo:', unlinkError);
+        }
+        
+        console.error('Error al procesar imagen:', error);
+        res.status(500).json({ error: 'Error al procesar la imagen' });
     }
 });
 
