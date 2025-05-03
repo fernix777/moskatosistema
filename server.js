@@ -10,10 +10,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const port = 5502;
+const port = process.env.PORT || 5502;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: ['http://localhost:5502', 'https://moskatosistema-2.onrender.com'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
+}));
 app.use(express.json());
 app.use(express.static(__dirname));
 

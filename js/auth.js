@@ -1,10 +1,11 @@
-// Configuración base para las llamadas API
-const API_BASE_URL = 'http://localhost:5502'; // Cambiado para entorno local
+// URL del servidor - cambia según el entorno
+const API_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5502' 
+    : 'https://moskatosistema-2.onrender.com';
 
-// Función para autenticar y obtener JWT
 async function autenticarUsuario(username, password) {
     try {
-        const response = await fetch(`${API_BASE_URL}/api/login`, {
+        const response = await fetch(`${API_URL}/api/login`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -73,7 +74,7 @@ async function verificarSesion() {
     
     try {
         // Verificar token con el backend
-        const response = await fetch(`${API_BASE_URL}/api/protected`, {
+        const response = await fetch(`${API_URL}/api/protected`, {
             headers: {'Authorization': `Bearer ${token}`}
         });
         
