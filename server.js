@@ -98,7 +98,10 @@ function inicializarBaseDeDatos() {
             fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
             total REAL,
             metodo_pago TEXT,
-            FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+            factura_pdf TEXT,
+            cliente_id INTEGER,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
+            FOREIGN KEY (cliente_id) REFERENCES clientes(id)
         )`);
 
         // Tabla de detalles de venta
@@ -816,17 +819,28 @@ app.get('/api/clientes', autenticarToken, (req, res) => {
 });
 
 // Buscar cliente por teléfono
-app.get('/api/clientes/buscar/:telefono', autenticarToken, (req, res) => {
+app.get('/api/clientes/buscar/:telefono', autenticarToken, async (req, res) => {
     const telefono = req.params.telefono;
-    db.get('SELECT * FROM clientes WHERE telefono = ?', [telefono], (err, cliente) => {
-        if (err) {
-            return res.status(500).json({ error: 'Error al buscar cliente' });
-        }
+    try {
+        const cliente = await new Promise((resolve, reject) => {
+            db.get('SELECT * FROM clientes WHERE telefono = ?', [telefono], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
         if (!cliente) {
-            return res.status(404).json({ error: 'Cliente no encontrado' });
+            return res.status(404).json({ 
+                error: 'cliente_no_encontrado',
+                mensaje: 'No se encontró ningún cliente con ese teléfono'
+            });
         }
+
         res.json(cliente);
-    });
+    } catch (error) {
+        console.error('Error al buscar cliente:', error);
+        res.status(500).json({ error: 'Error al buscar cliente' });
+    }
 });
 
 // Crear cliente
