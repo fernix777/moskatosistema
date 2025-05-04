@@ -892,7 +892,7 @@ function calcularCambio() {
     document.getElementById('changeAmount').textContent = `$${Math.max(0, cambio).toFixed(2)}`;
 }
 
-function procesarVenta(datosFactura = null) {
+async function procesarVenta(datosFactura = null) {
     if (!cajaAbierta) {
         alert('Debe abrir la caja antes de procesar la venta');
         return;
@@ -922,39 +922,38 @@ function procesarVenta(datosFactura = null) {
         return;
     }
 
-    // Crear el objeto de venta
-    const ventaData = {
-        productos: carrito.map(item => ({
-            producto_id: item.productoId,
-            cantidad: item.cantidad,
-            precio_unitario: item.precio
-        })),
-        total: total,
-        metodo_pago: metodoPago,
-        datos_factura: datosFactura,
-        cliente_id: clienteActual?.id
-    };
+    try {
+        // Crear el objeto de venta
+        const ventaData = {
+            productos: carrito.map(item => ({
+                producto_id: item.productoId,
+                cantidad: item.cantidad,
+                precio_unitario: item.precio
+            })),
+            total: total,
+            metodo_pago: metodoPago,
+            datos_factura: datosFactura,
+            cliente_id: clienteActual?.id
+        };
 
-    // Enviar venta al servidor
-    fetch(`${API_BASE_URL}/api/ventas`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}`
-        },
-        body: JSON.stringify(ventaData)
-    })
-    .then(async response => {
+        // Enviar venta al servidor
+        const response = await fetch(`${API_BASE_URL}/api/ventas`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}`
+            },
+            body: JSON.stringify(ventaData)
+        });
+
         const data = await response.json();
         if (!response.ok) {
             throw new Error(data.mensaje || 'Error al procesar la venta');
         }
-        return data;
-    })
-    .then(async data => {
-        try {
-            // Si se requiere factura, generarla
-            if (requireInvoice && clienteActual) {
+
+        // Si se requiere factura, generarla
+        if (requireInvoice && clienteActual) {
+            try {
                 const facturaResponse = await fetch(`${API_BASE_URL}/api/facturas/${data.id}`, {
                     method: 'POST',
                     headers: {
@@ -968,49 +967,53 @@ function procesarVenta(datosFactura = null) {
 
                 if (!facturaResponse.ok) {
                     const errorData = await facturaResponse.json();
-                    throw new Error(errorData.error || 'Error al generar la factura');
+                    throw new Error(errorData.mensaje || 'Error al generar la factura');
                 }
 
                 const facturaData = await facturaResponse.json();
+                // Abrir la factura en una nueva ventana
                 window.open(`${API_BASE_URL}${facturaData.url}`, '_blank');
+            } catch (error) {
+                console.error('Error al generar factura:', error);
+                alert('Error al generar la factura: ' + error.message);
             }
-
-            // Actualizar saldo de caja
-            if (metodoPago === 'cash') {
-                saldoCaja += total;
-                sessionStorage.setItem('saldoCaja', saldoCaja.toString());
-            }
-
-            // Limpiar carrito y formulario
-            carrito = [];
-            actualizarCarrito();
-            document.getElementById('cashAmount').value = '';
-            document.getElementById('changeAmount').textContent = '$0.00';
-            document.getElementById('requireInvoice').checked = false;
-            clienteActual = null;
-
-            // Recargar productos
-            return fetch(`${API_BASE_URL}/api/productos`, {
-                headers: {
-                    'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}`
-                }
-            });
-        } catch (error) {
-            console.error('Error al generar factura:', error);
-            alert('Error al generar la factura: ' + error.message);
-            throw error; // Re-lanzar el error para el siguiente catch
         }
-    })
-    .then(response => response.json())
-    .then(data => {
-        productos = data;
-        cargarProductos(productos);
+
+        // Actualizar saldo de caja
+        if (metodoPago === 'cash') {
+            saldoCaja += total;
+            sessionStorage.setItem('saldoCaja', saldoCaja.toString());
+        }
+
+        // Limpiar carrito y formulario
+        carrito = [];
+        actualizarCarrito();
+        document.getElementById('cashAmount').value = '';
+        document.getElementById('changeAmount').textContent = '$0.00';
+        document.getElementById('requireInvoice').checked = false;
+        clienteActual = null;
+
         alert('Venta procesada con éxito');
-    })
-    .catch(error => {
-        console.error('Error al procesar venta:', error);
+
+        // Recargar productos
+        const productosResponse = await fetch(`${API_BASE_URL}/api/productos`, {
+            headers: {
+                'Authorization': `Bearer ${sessionStorage.getItem('jwtToken')}`
+            }
+        });
+
+        if (!productosResponse.ok) {
+            throw new Error('Error al actualizar productos');
+        }
+
+        const productosData = await productosResponse.json();
+        productos = productosData;
+        cargarProductos(productos);
+
+    } catch (error) {
+        console.error('Error:', error);
         alert(error.message || 'Error al procesar la venta');
-    });
+    }
 }
 
 function continuarVenta() {
@@ -1175,6 +1178,8 @@ async function buscarCliente() {
             }
         });
 
+        const data = await response.json();
+
         if (response.status === 404) {
             // Cliente no encontrado, mostrar formulario de registro
             document.getElementById('clienteInfo').classList.add('d-none');
@@ -1184,14 +1189,13 @@ async function buscarCliente() {
         }
 
         if (!response.ok) {
-            throw new Error('Error al buscar cliente');
+            throw new Error(data.mensaje || 'Error al buscar cliente');
         }
 
-        const cliente = await response.json();
-        mostrarInfoCliente(cliente);
+        mostrarInfoCliente(data);
     } catch (error) {
         console.error('Error:', error);
-        alert('Error al buscar el cliente');
+        alert(error.message || 'Error al buscar el cliente');
     }
 }
 
