@@ -1,3 +1,7 @@
+// Surcharge Configuration
+const SURCHARGE_PAYMENT_METHODS_CLIENT = ['tarjeta', 'transferencia']; // Ensure these match server
+const SURCHARGE_RATE_CLIENT = 0.045; // 4.5%
+
 // Variables globales
 let productos = [];
 let carrito = [];
@@ -522,8 +526,33 @@ function actualizarCarrito() {
     });
 
     document.getElementById('subtotal').textContent = `$${subtotal.toFixed(2)}`;
-    document.getElementById('discounts').textContent = `$0.00`;
-    document.getElementById('total').textContent = `$${subtotal.toFixed(2)}`;
+    document.getElementById('discounts').textContent = `$0.00`; // Assuming discounts are handled separately or not applicable here
+
+    // Surcharge Calculation
+    const paymentMethodSelect = document.getElementById('paymentMethod');
+    const selectedPaymentMethod = paymentMethodSelect ? paymentMethodSelect.value : '';
+    let surcharge = 0;
+    let grandTotal = subtotal;
+
+    if (SURCHARGE_PAYMENT_METHODS_CLIENT.includes(selectedPaymentMethod.toLowerCase())) {
+        surcharge = parseFloat((subtotal * SURCHARGE_RATE_CLIENT).toFixed(2));
+        grandTotal = parseFloat((subtotal + surcharge).toFixed(2));
+    }
+
+    // Display Surcharge
+    const surchargeRow = document.getElementById('surchargeRow');
+    const surchargeValueElement = document.getElementById('surchargeValue');
+
+    if (surchargeRow && surchargeValueElement) {
+        if (surcharge > 0) {
+            surchargeValueElement.textContent = `$${surcharge.toFixed(2)}`;
+            surchargeRow.style.display = ''; // Or 'table-row' if it's a tr
+        } else {
+            surchargeRow.style.display = 'none';
+        }
+    }
+    
+    document.getElementById('total').textContent = `$${grandTotal.toFixed(2)}`;
 }
 
 function actualizarCantidad(productoId, nuevaCantidad) {
@@ -904,13 +933,15 @@ async function procesarVenta(datosFactura = null) {
     }
 
     const metodoPago = document.getElementById('paymentMethod').value;
-    const total = parseFloat(document.getElementById('total').textContent.replace('$', ''));
+    // const total = parseFloat(document.getElementById('total').textContent.replace('$', '')); // Total is now calculated server-side
     const requireInvoice = document.getElementById('requireInvoice').checked;
 
     if (metodoPago === 'cash') {
+        // For cash payment, client-side validation of received amount against displayed total is still useful
+        const displayedTotal = parseFloat(document.getElementById('total').textContent.replace('$', ''));
         const efectivoRecibido = parseFloat(document.getElementById('cashAmount').value);
-        if (isNaN(efectivoRecibido) || efectivoRecibido < total) {
-            alert('Monto de efectivo inválido');
+        if (isNaN(efectivoRecibido) || efectivoRecibido < displayedTotal) {
+            alert('Monto de efectivo inválido o insuficiente para el total mostrado.');
             return;
         }
     }
@@ -930,11 +961,16 @@ async function procesarVenta(datosFactura = null) {
                 cantidad: item.cantidad,
                 precio_unitario: item.precio
             })),
-            total: total,
+            // total: total, // REMOVED - Server will calculate
             metodo_pago: metodoPago,
-            datos_factura: datosFactura,
+            // datos_factura: datosFactura, // Keep if used for other invoice info not related to totals
             cliente_id: clienteActual?.id
         };
+         // Include datosFactura only if it exists and is relevant
+        if (datosFactura) {
+            ventaData.datos_factura = datosFactura;
+        }
+
 
         // Enviar venta al servidor
         const response = await fetch(`${API_BASE_URL}/api/ventas`, {
@@ -1095,71 +1131,109 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Lector de código de barras
     const barcodeInput = document.getElementById('barcodeInput');
-    barcodeInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            const codigo = barcodeInput.value;
-            if (!buscarPorCodigo(codigo)) {
-                alert('Producto no encontrado');
+    if (barcodeInput) {
+        barcodeInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const codigo = barcodeInput.value;
+                if (!buscarPorCodigo(codigo)) {
+                    alert('Producto no encontrado');
+                }
+                barcodeInput.value = '';
+                barcodeInput.focus();
             }
-            barcodeInput.value = '';
-            barcodeInput.focus();
-        }
-    });
+        });
+    }
 
     // Búsqueda de productos
-    document.getElementById('searchProduct').addEventListener('input', (e) => {
-        const busqueda = e.target.value.toLowerCase();
-        const productosFiltrados = productos.filter(producto =>
-            producto.nombre.toLowerCase().includes(busqueda) ||
-            producto.codigo_barras.includes(busqueda)
-        );
-        cargarProductos(productosFiltrados);
-    });
+    const searchProductInput = document.getElementById('searchProduct');
+    if (searchProductInput) {
+        searchProductInput.addEventListener('input', (e) => {
+            const busqueda = e.target.value.toLowerCase();
+            const productosFiltrados = productos.filter(producto =>
+                (producto.nombre && producto.nombre.toLowerCase().includes(busqueda)) ||
+                (producto.codigo_barras && producto.codigo_barras.includes(busqueda))
+            );
+            cargarProductos(productosFiltrados);
+        });
+    }
 
     // Botones de acción
-    document.getElementById('processSale').addEventListener('click', procesarVenta);
-    document.getElementById('clearCart').addEventListener('click', () => {
-        carrito = [];
-        actualizarCarrito();
-    });
-    document.getElementById('holdSale').addEventListener('click', ponerVentaEnEspera);
-    document.getElementById('calculateChange').addEventListener('click', calcularCambio);
+    const processSaleBtn = document.getElementById('processSale');
+    if (processSaleBtn) processSaleBtn.addEventListener('click', procesarVenta);
+    
+    const clearCartBtn = document.getElementById('clearCart');
+    if (clearCartBtn) {
+        clearCartBtn.addEventListener('click', () => {
+            carrito = [];
+            actualizarCarrito();
+        });
+    }
 
+    const holdSaleBtn = document.getElementById('holdSale');
+    if (holdSaleBtn) holdSaleBtn.addEventListener('click', ponerVentaEnEspera);
+
+    const calculateChangeBtn = document.getElementById('calculateChange');
+    if (calculateChangeBtn) calculateChangeBtn.addEventListener('click', calcularCambio);
+    
     // Modal de devolución
-    document.getElementById('processReturn').addEventListener('click', () => {
-        const numeroTicket = document.getElementById('ticketNumber').value;
-        const motivo = document.getElementById('returnReason').value;
-        procesarDevolucion(numeroTicket, motivo);
-    });
+    const processReturnBtn = document.getElementById('processReturn');
+    if (processReturnBtn) {
+        processReturnBtn.addEventListener('click', () => {
+            const numeroTicket = document.getElementById('ticketNumber').value;
+            const motivo = document.getElementById('returnReason').value;
+            procesarDevolucion(numeroTicket, motivo);
+        });
+    }
 
     // Operaciones de caja
     const drawerButton = document.getElementById('drawerButton');
-    const drawerModal = new bootstrap.Modal(document.getElementById('drawerModal'));
-    
-    drawerButton.addEventListener('click', () => {
-        drawerModal.show();
-    });
+    if (drawerButton) {
+        const drawerModalElement = document.getElementById('drawerModal');
+        if (drawerModalElement) {
+            const drawerModal = new bootstrap.Modal(drawerModalElement);
+            drawerButton.addEventListener('click', () => {
+                drawerModal.show();
+            });
 
-    document.getElementById('openDrawerBtn').addEventListener('click', () => {
-        mostrarModalAbrirCaja();
-    });
+            const openDrawerBtn = document.getElementById('openDrawerBtn');
+            if (openDrawerBtn) {
+                openDrawerBtn.addEventListener('click', () => {
+                    mostrarModalAbrirCaja();
+                });
+            }
 
-    document.getElementById('closeDrawerBtn').addEventListener('click', () => {
-        const resumen = cerrarCaja();
-        if (resumen) {
-            alert(`Caja cerrada. Saldo final: $${resumen.saldoFinal.toFixed(2)}`);
-            drawerModal.hide();
+            const closeDrawerBtn = document.getElementById('closeDrawerBtn');
+            if (closeDrawerBtn) {
+                closeDrawerBtn.addEventListener('click', () => {
+                    const resumen = cerrarCaja();
+                    if (resumen) {
+                        alert(`Caja cerrada. Saldo final: $${resumen.saldoFinal.toFixed(2)}`);
+                        drawerModal.hide();
+                    }
+                });
+            }
         }
-    });
-
+    }
+    
     // Verificar estado de la caja al cargar
     const cajaAbierta = JSON.parse(sessionStorage.getItem('cajaAbierta')) || false;
-    if (cajaAbierta) {
-        document.getElementById('openDrawerBtn').classList.add('disabled');
-        document.getElementById('closeDrawerBtn').classList.remove('disabled');
-    } else {
-        document.getElementById('openDrawerBtn').classList.remove('disabled');
-        document.getElementById('closeDrawerBtn').classList.add('disabled');
+    const openDrawerBtn = document.getElementById('openDrawerBtn');
+    const closeDrawerBtn = document.getElementById('closeDrawerBtn');
+
+    if (openDrawerBtn && closeDrawerBtn) {
+        if (cajaAbierta) {
+            openDrawerBtn.classList.add('disabled');
+            closeDrawerBtn.classList.remove('disabled');
+        } else {
+            openDrawerBtn.classList.remove('disabled');
+            closeDrawerBtn.classList.add('disabled');
+        }
+    }
+
+    // Event listener for payment method change
+    const paymentMethodSelect = document.getElementById('paymentMethod');
+    if (paymentMethodSelect) {
+        paymentMethodSelect.addEventListener('change', actualizarCarrito);
     }
 });
 

@@ -12,6 +12,10 @@ import PDFDocument from 'pdfkit';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Surcharge Configuration
+const SURCHARGE_PAYMENT_METHODS = ['tarjeta', 'transferencia']; // Case-insensitive check will be applied
+const SURCHARGE_RATE = 0.045; // 4.5%
+
 // Asegurarnos de que los directorios necesarios existan
 const facturasDir = join(__dirname, 'facturas');
 try {
@@ -103,10 +107,12 @@ function inicializarBaseDeDatos() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id INTEGER NOT NULL,
             fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
-            total REAL,
+            total REAL,                 -- This will be the grand total including surcharge
             metodo_pago TEXT,
             factura_pdf TEXT,
             cliente_id INTEGER,
+            monto_recargo_mp REAL DEFAULT 0, -- New column for surcharge amount
+            subtotal_productos REAL,    -- New column for sum of products before surcharge
             FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
             FOREIGN KEY (cliente_id) REFERENCES clientes(id)
         )`);
@@ -582,20 +588,42 @@ app.get('/api/ventas', autenticarToken, (req, res) => {
 
 // Ruta para crear venta
 app.post('/api/ventas', autenticarToken, async (req, res) => {
-    const { productos, total, metodo_pago, cliente_id } = req.body;
+    const { productos, metodo_pago, cliente_id } = req.body; // total is removed from req.body
     const usuario_id = req.user.id; // Obtener el ID del usuario del token
 
-    if (!Array.isArray(productos) || productos.length === 0 || !total) {
-        return res.status(400).json({ error: 'datos_invalidos', mensaje: 'Productos, total son requeridos.' });
+    if (!Array.isArray(productos) || productos.length === 0) {
+        return res.status(400).json({ error: 'datos_invalidos', mensaje: 'Productos son requeridos.' });
     }
-
+    if (!metodo_pago) {
+        return res.status(400).json({ error: 'datos_invalidos', mensaje: 'Método de pago es requerido.' });
+    }
     if (!cliente_id) {
         return res.status(400).json({ error: 'cliente_id_requerido', mensaje: 'El ID del cliente es requerido para la venta.' });
     }
 
-    let ventaId; // Declarar ventaId aquí para que sea accesible fuera del try de la transacción si es necesario
+    let ventaId; 
 
     try {
+        // Calculate subtotal_productos
+        let subtotal_productos = 0;
+        for (const producto of productos) {
+            if (typeof producto.cantidad !== 'number' || typeof producto.precio_unitario !== 'number' || producto.cantidad <= 0 || producto.precio_unitario < 0) {
+                return res.status(400).json({ error: 'producto_invalido', mensaje: `Datos inválidos para el producto ID ${producto.producto_id || 'desconocido'}. Cantidad y precio deben ser números positivos.`});
+            }
+            subtotal_productos += producto.cantidad * producto.precio_unitario;
+        }
+        subtotal_productos = parseFloat(subtotal_productos.toFixed(2));
+
+        // Calculate monto_recargo_mp
+        let monto_recargo_mp = 0;
+        if (SURCHARGE_PAYMENT_METHODS.includes(metodo_pago.toLowerCase())) {
+            monto_recargo_mp = subtotal_productos * SURCHARGE_RATE;
+            monto_recargo_mp = parseFloat(monto_recargo_mp.toFixed(2));
+        }
+
+        // Calculate total_final
+        const total_final = parseFloat((subtotal_productos + monto_recargo_mp).toFixed(2));
+
         // Verificar stock disponible
         for (const producto of productos) {
             const [stockActual] = await new Promise((resolve, reject) => {
@@ -628,8 +656,8 @@ app.post('/api/ventas', autenticarToken, async (req, res) => {
         // Insertar venta con usuario_id y cliente_id
         ventaId = await new Promise((resolve, reject) => {
             db.run(
-                'INSERT INTO ventas (usuario_id, total, metodo_pago, fecha, cliente_id) VALUES (?, ?, ?, datetime("now"), ?)',
-                [usuario_id, total, metodo_pago, cliente_id],
+                'INSERT INTO ventas (usuario_id, metodo_pago, cliente_id, subtotal_productos, monto_recargo_mp, total, fecha) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))',
+                [usuario_id, metodo_pago, cliente_id, subtotal_productos, monto_recargo_mp, total_final],
                 function(err) {
                     if (err) reject(err);
                     else resolve(this.lastID);
@@ -697,6 +725,9 @@ app.post('/api/ventas', autenticarToken, async (req, res) => {
             res.json({ 
                 id: ventaId,
                 mensaje: 'Venta registrada exitosamente',
+                subtotal_productos,
+                monto_recargo_mp,
+                total: total_final, // total_final is the grand total
                 facturaUrl: pdfResult.url 
             });
 
@@ -706,6 +737,9 @@ app.post('/api/ventas', autenticarToken, async (req, res) => {
             res.status(201).json({ 
                 id: ventaId,
                 mensaje: 'Venta registrada pero falló la generación de la factura.',
+                subtotal_productos,
+                monto_recargo_mp,
+                total: total_final,
                 facturaUrl: null,
                 error_factura: pdfError.message 
             });
@@ -986,11 +1020,12 @@ async function generarFacturaPDF(ventaId, clienteId, db, PDFDocument, fs, join, 
         const venta = await new Promise((resolve, reject) => {
             db.get(`
                 SELECT v.*, u.username as vendedor,
+                       v.subtotal_productos, v.monto_recargo_mp, v.total as total_final, -- Asegurar estos campos
                        GROUP_CONCAT(json_object(
                            'producto_id', dv.producto_id,
                            'cantidad', dv.cantidad,
                            'precio', dv.precio_unitario,
-                           'total', (dv.cantidad * dv.precio_unitario),
+                           'total_detalle', (dv.cantidad * dv.precio_unitario), -- Renombrar para evitar confusión con venta.total
                            'nombre', p.nombre
                        )) as detalles
                 FROM ventas v
@@ -1008,6 +1043,10 @@ async function generarFacturaPDF(ventaId, clienteId, db, PDFDocument, fs, join, 
         if (!venta) {
             throw new Error('La venta especificada no existe');
         }
+         if (venta.subtotal_productos == null || venta.monto_recargo_mp == null || venta.total_final == null) {
+            throw new Error('Datos de la venta incompletos para la factura (subtotal, recargo o total faltantes).');
+        }
+
 
         // Obtener datos del cliente
         const cliente = await new Promise((resolve, reject) => {
@@ -1088,19 +1127,24 @@ async function generarFacturaPDF(ventaId, clienteId, db, PDFDocument, fs, join, 
             currentX += columnWidths[1];
             doc.text(`$${item.precio.toFixed(2)}`, currentX, tableY, { width: columnWidths[2] });
             currentX += columnWidths[2];
-            doc.text(`$${item.total.toFixed(2)}`, currentX, tableY, { width: columnWidths[3] });
+            doc.text(`$${item.total_detalle.toFixed(2)}`, currentX, tableY, { width: columnWidths[3] }); // Usar total_detalle
             tableY += 20;
         });
 
-        doc.moveDown(2)
-           .fontSize(12)
-           .text(`Subtotal: $${venta.total.toFixed(2)}`, { align: 'right' })
-           .text(`IVA: Incluido`, { align: 'right' })
-           .text(`Total: $${venta.total.toFixed(2)}`, { align: 'right' })
-           .moveDown(2);
-
+        doc.moveDown(2);
+        doc.fontSize(12);
+        doc.text(`Subtotal Productos: $${parseFloat(venta.subtotal_productos).toFixed(2)}`, { align: 'right' });
+        
+        if (venta.monto_recargo_mp && parseFloat(venta.monto_recargo_mp) > 0) {
+            doc.text(`Impuesto por elección de método de pago virtual: $${parseFloat(venta.monto_recargo_mp).toFixed(2)}`, { align: 'right' });
+        }
+        
+        // doc.text(`IVA: Incluido`, { align: 'right' }); // Mantener o quitar según relevancia
+        doc.fontSize(14).text(`Total: $${parseFloat(venta.total_final).toFixed(2)}`, { align: 'right' });
+        doc.moveDown(2);
+        
         // Agregar método de pago
-        doc.text(`Método de pago: ${venta.metodo_pago || 'Efectivo'}`, { align: 'left' });
+        doc.fontSize(12).text(`Método de pago: ${venta.metodo_pago || 'Efectivo'}`, { align: 'left' });
 
         // Finalizar el PDF
         doc.end();
