@@ -582,15 +582,21 @@ app.get('/api/ventas', autenticarToken, (req, res) => {
 
 // Ruta para crear venta
 app.post('/api/ventas', autenticarToken, async (req, res) => {
-    const { productos, total, metodo_pago } = req.body;
+    const { productos, total, metodo_pago, cliente_id } = req.body;
     const usuario_id = req.user.id; // Obtener el ID del usuario del token
 
     if (!Array.isArray(productos) || productos.length === 0 || !total) {
-        return res.status(400).json({ error: 'datos_invalidos' });
+        return res.status(400).json({ error: 'datos_invalidos', mensaje: 'Productos, total son requeridos.' });
     }
 
-    // Verificar stock disponible
+    if (!cliente_id) {
+        return res.status(400).json({ error: 'cliente_id_requerido', mensaje: 'El ID del cliente es requerido para la venta.' });
+    }
+
+    let ventaId; // Declarar ventaId aquí para que sea accesible fuera del try de la transacción si es necesario
+
     try {
+        // Verificar stock disponible
         for (const producto of productos) {
             const [stockActual] = await new Promise((resolve, reject) => {
                 db.get(
@@ -619,11 +625,11 @@ app.post('/api/ventas', autenticarToken, async (req, res) => {
             });
         });
 
-        // Insertar venta con usuario_id
-        const ventaId = await new Promise((resolve, reject) => {
+        // Insertar venta con usuario_id y cliente_id
+        ventaId = await new Promise((resolve, reject) => {
             db.run(
-                'INSERT INTO ventas (usuario_id, total, metodo_pago, fecha) VALUES (?, ?, ?, datetime("now"))',
-                [usuario_id, total, metodo_pago],
+                'INSERT INTO ventas (usuario_id, total, metodo_pago, fecha, cliente_id) VALUES (?, ?, ?, datetime("now"), ?)',
+                [usuario_id, total, metodo_pago, cliente_id],
                 function(err) {
                     if (err) reject(err);
                     else resolve(this.lastID);
@@ -665,18 +671,53 @@ app.post('/api/ventas', autenticarToken, async (req, res) => {
             });
         });
 
-        res.json({ 
-            id: ventaId,
-            mensaje: 'Venta registrada exitosamente'
-        });
+        // Después de confirmar la transacción, intentar generar la factura
+        try {
+            const pdfResult = await generarFacturaPDF(ventaId, cliente_id, db, PDFDocument, fs, join, facturasDir);
+            
+            // Actualizar la venta con la URL de la factura
+            await new Promise((resolve, reject) => {
+                db.run(
+                    'UPDATE ventas SET factura_pdf = ? WHERE id = ?',
+                    [pdfResult.url, ventaId],
+                    (err) => {
+                        if (err) {
+                            // Loggear este error, pero la venta ya se realizó.
+                            console.error('Error al actualizar venta con URL de factura:', err);
+                            // No rechazamos la promesa principal aquí, ya que la venta fue exitosa.
+                            // La respuesta al cliente reflejará este error secundario.
+                            resolve(); // Resolvemos para no bloquear el flujo.
+                        } else {
+                            resolve();
+                        }
+                    }
+                );
+            });
+
+            res.json({ 
+                id: ventaId,
+                mensaje: 'Venta registrada exitosamente',
+                facturaUrl: pdfResult.url 
+            });
+
+        } catch (pdfError) {
+            console.error('Error al generar factura PDF después de la venta:', pdfError);
+            // La venta se registró, pero la factura no se pudo generar o guardar.
+            res.status(201).json({ 
+                id: ventaId,
+                mensaje: 'Venta registrada pero falló la generación de la factura.',
+                facturaUrl: null,
+                error_factura: pdfError.message 
+            });
+        }
 
     } catch (error) {
-        // Rollback en caso de error
+        // Rollback en caso de error en la transacción principal de la venta
         await new Promise((resolve) => {
             db.run('ROLLBACK', () => resolve());
         });
         
-        console.error('Error en la transacción:', error);
+        console.error('Error en la transacción de la venta:', error);
         return res.status(500).json({ 
             error: 'Error al procesar la venta',
             mensaje: error.message
@@ -928,19 +969,14 @@ app.post('/api/clientes', autenticarToken, async (req, res) => {
     }
 });
 
-// Rutas de facturas
-app.post('/api/facturas/:ventaId', autenticarToken, async (req, res) => {
-    const ventaId = req.params.ventaId;
-    const clienteId = req.body.clienteId;
+// Función refactorizada para generar PDF
+async function generarFacturaPDF(ventaId, clienteId, db, PDFDocument, fs, join, facturasDir) {
     let doc = null;
     let writeStream = null;
 
     try {
         if (!ventaId || !clienteId) {
-            return res.status(400).json({
-                error: 'datos_invalidos',
-                mensaje: 'El ID de venta y el ID de cliente son requeridos'
-            });
+            throw new Error('El ID de venta y el ID de cliente son requeridos');
         }
 
         // Verificar y crear directorio de facturas si no existe
@@ -970,10 +1006,7 @@ app.post('/api/facturas/:ventaId', autenticarToken, async (req, res) => {
         });
 
         if (!venta) {
-            return res.status(404).json({ 
-                error: 'venta_no_encontrada',
-                mensaje: 'La venta especificada no existe'
-            });
+            throw new Error('La venta especificada no existe');
         }
 
         // Obtener datos del cliente
@@ -985,10 +1018,7 @@ app.post('/api/facturas/:ventaId', autenticarToken, async (req, res) => {
         });
 
         if (!cliente) {
-            return res.status(404).json({ 
-                error: 'cliente_no_encontrado',
-                mensaje: 'El cliente especificado no existe'
-            });
+            throw new Error('El cliente especificado no existe');
         }
 
         // Crear el PDF
@@ -1078,7 +1108,7 @@ app.post('/api/facturas/:ventaId', autenticarToken, async (req, res) => {
         // Esperar a que el archivo se escriba completamente
         await new Promise((resolve, reject) => {
             writeStream.on('finish', resolve);
-            writeStream.on('error', reject);
+            writeStream.on('error', (err) => reject(new Error('Error al escribir el archivo PDF: ' + err.message)));
         });
 
         // Actualizar la venta con la referencia a la factura
@@ -1087,40 +1117,101 @@ app.post('/api/facturas/:ventaId', autenticarToken, async (req, res) => {
                 'UPDATE ventas SET factura_pdf = ? WHERE id = ?',
                 [`/facturas/${fileName}`, ventaId],
                 (err) => {
-                    if (err) reject(err);
+                    if (err) reject(new Error('Error al actualizar la venta con la factura: ' + err.message));
                     else resolve();
                 }
             );
         });
 
-        res.json({
-            mensaje: 'Factura generada correctamente',
-            url: `/facturas/${fileName}`
-        });
+        return { url: `/facturas/${fileName}` };
 
     } catch (error) {
-        console.error('Error al generar factura:', error);
-        
-        // Cerrar el documento PDF y el stream si están abiertos
-        if (doc) {
+        // Cerrar el documento PDF y el stream si están abiertos en caso de error
+        if (doc && !doc.ended) { // Check if doc exists and is not already ended
             try {
                 doc.end();
             } catch (closeError) {
-                console.error('Error al cerrar el documento PDF:', closeError);
+                console.error('Error al cerrar el documento PDF durante el manejo de errores:', closeError);
             }
         }
 
-        if (writeStream) {
-            try {
-                writeStream.end();
+        if (writeStream && !writeStream.closed) { // Check if writeStream exists and is not already closed
+             try {
+                writeStream.end(); // Attempt to close the stream
             } catch (closeError) {
-                console.error('Error al cerrar el stream:', closeError);
+                console.error('Error al cerrar el stream durante el manejo de errores:', closeError);
             }
+        }
+        // Re-throw the error to be caught by the caller
+        throw error;
+    }
+}
+
+// Rutas de facturas
+app.post('/api/facturas/:ventaId', autenticarToken, async (req, res) => {
+    const ventaId = req.params.ventaId;
+
+    try {
+        // 1. Validar ventaId (aunque implícitamente validado por la ruta, es bueno tenerlo)
+        if (!ventaId) {
+            return res.status(400).json({
+                error: 'venta_id_requerido',
+                mensaje: 'El ID de la venta es requerido.'
+            });
+        }
+
+        // 2. Obtener cliente_id de la base de datos
+        const ventaInfo = await new Promise((resolve, reject) => {
+            db.get('SELECT cliente_id FROM ventas WHERE id = ?', [ventaId], (err, row) => {
+                if (err) {
+                    reject(new Error('Error al consultar la venta: ' + err.message));
+                } else {
+                    resolve(row);
+                }
+            });
+        });
+
+        // 3. Validar si la venta existe y tiene cliente_id
+        if (!ventaInfo) {
+            return res.status(404).json({
+                error: 'venta_no_encontrada',
+                mensaje: 'La venta especificada no existe.'
+            });
+        }
+        if (!ventaInfo.cliente_id) {
+            return res.status(400).json({
+                error: 'datos_insuficientes',
+                mensaje: 'La venta no tiene un cliente asociado.'
+            });
+        }
+
+        const clienteId = ventaInfo.cliente_id;
+
+        // 4. Llamar a generarFacturaPDF (que también actualiza la BD)
+        const resultadoFactura = await generarFacturaPDF(ventaId, clienteId, db, PDFDocument, fs, join, facturasDir);
+        
+        // 5. Responder con éxito
+        res.json({
+            mensaje: 'Factura regenerada correctamente', // Mensaje adaptado para regeneración
+            url: resultadoFactura.url
+        });
+
+    } catch (error) {
+        console.error('Error al regenerar factura:', error);
+        // Diferenciar si el error viene de la lógica de este endpoint o de generarFacturaPDF
+        if (error.message.startsWith('Error al consultar la venta') || 
+            error.message.startsWith('La venta no existe') ||
+            error.message.startsWith('La venta no tiene un cliente asociado')) {
+             // Estos son errores que ya tienen su propio manejo de status, pero por si acaso.
+            return res.status(500).json({
+                error: 'error_interno_consulta_venta',
+                mensaje: error.message
+            });
         }
 
         res.status(500).json({ 
-            error: 'error_factura',
-            mensaje: 'Error al generar la factura: ' + error.message 
+            error: 'error_regeneracion_factura',
+            mensaje: 'Error al regenerar la factura: ' + (error.message || 'Error desconocido')
         });
     }
 });
